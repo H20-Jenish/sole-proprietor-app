@@ -190,6 +190,10 @@ After login, navigate to **Dashboard** to view your business name and HST number
 - Generate invoices from timesheet periods
 - Auto-calculate hours, rate, subtotal, HST 13%, total
 - Toggle billing to client or recruiter (for middle-party setups)
+- Generate expense reimbursement invoices by selecting specific expenses
+- Expense invoices do not add extra tax (treated as tax-inclusive reimbursements)
+- Expense invoice PDFs include receipt filename references and attach receipt pages (image/PDF receipts)
+- Expense invoice generation does not require period dates when expenses are selected
 - Auto-incrementing invoice numbers
 - Styled PDF generation with embedded timesheet summary table
 - Color-coded status: **Orange** (Pending) / **Green** (Paid)
@@ -278,6 +282,16 @@ Check that the `uploads` volume is mounted and writable:
 ```bash
 docker-compose exec backend ls -la /app/uploads
 ```
+
+### Invoice PDF does not reflect latest changes
+
+Code changes require rebuilding containers in this Dockerized setup:
+
+```bash
+docker-compose up -d --build backend nginx
+```
+
+If invoice content/layout changed, generate a **new** invoice PDF. Existing saved PDFs are not auto-regenerated.
 
 ### Port 8002 already in use
 

@@ -4,7 +4,7 @@ const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware } = require('../middleware/auth');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
-const { parseDateOnly } = require('../utils/dateOnly');
+const { parseDateOnly, formatDateOnly } = require('../utils/dateOnly');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -45,9 +45,11 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 router.post('/', authMiddleware, async (req, res) => {
-  const { clientId, recruiterId, periodStart, periodEnd } = req.body;
+  const { clientId, recruiterId, periodStart, periodEnd, source, expenseIds } = req.body;
   const client = await prisma.client.findUnique({ where: { id: Number(clientId) } });
   if (!client) return res.status(404).json({ error: 'Client not found' });
+
+  const invoiceSource = String(source || 'TIMESHEET').toUpperCase() === 'EXPENSE' ? 'EXPENSE' : 'TIMESHEET';
 
   let recruiter = null;
   if (recruiterId) {
@@ -55,31 +57,78 @@ router.post('/', authMiddleware, async (req, res) => {
     if (!recruiter) return res.status(404).json({ error: 'Recruiter not found' });
   }
 
-  const timesheets = await prisma.timesheet.findMany({
-    where: {
-      clientId: Number(clientId),
-      date: { gte: parseDateOnly(periodStart), lte: parseDateOnly(periodEnd) },
-    },
-    orderBy: { date: 'asc' },
-  });
-
-  const deductionMinutes = client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0;
-  const adjustedTimesheets = timesheets.map((t) => ({
-    ...t,
-    totalHours: computeHours(t.startTime, t.endTime, deductionMinutes),
-  }));
-
-  const totalHours = adjustedTimesheets.reduce((sum, t) => sum + Number(t.totalHours), 0);
-  const rate = Number(client.payRate) || 0;
+  let adjustedTimesheets = [];
+  let selectedExpenses = [];
+  let normalizedPeriodStart = periodStart;
+  let normalizedPeriodEnd = periodEnd;
+  let totalHours = 0;
+  let rate = 0;
   let subtotal = 0;
-  if (client.payRateType === 'HOURLY') subtotal = totalHours * rate;
-  else subtotal = (rate / 52 / 40) * totalHours;
+  let hst13pct = 0;
+  let total = 0;
 
-  // Fetch user to check HST setting
-  const user = await prisma.user.findFirst();
-  const hasHst = !!(user?.hstNumber && String(user.hstNumber).trim());
-  const hst13pct = hasHst ? parseFloat((subtotal * 0.13).toFixed(2)) : 0;
-  const total = parseFloat((subtotal + hst13pct).toFixed(2));
+  if (invoiceSource === 'EXPENSE') {
+    const ids = Array.isArray(expenseIds)
+      ? expenseIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+    if (!ids.length) {
+      return res.status(400).json({ error: 'Select at least one expense to generate an expense invoice' });
+    }
+
+    selectedExpenses = await prisma.expense.findMany({
+      where: {
+        id: { in: ids },
+        clientId: Number(clientId),
+      },
+      orderBy: { dateTime: 'asc' },
+    });
+
+    if (selectedExpenses.length !== ids.length) {
+      return res.status(400).json({ error: 'Some selected expenses are invalid for this client' });
+    }
+
+    const firstExpenseDate = formatDateOnly(selectedExpenses[0].dateTime);
+    const lastExpenseDate = formatDateOnly(selectedExpenses[selectedExpenses.length - 1].dateTime);
+    normalizedPeriodStart = normalizedPeriodStart || firstExpenseDate;
+    normalizedPeriodEnd = normalizedPeriodEnd || lastExpenseDate;
+
+    // Expense amounts are treated as tax-inclusive reimbursements; no extra tax added on invoice.
+    subtotal = parseFloat(selectedExpenses.reduce((sum, x) => sum + Number(x.amount || 0), 0).toFixed(2));
+    hst13pct = 0;
+    total = subtotal;
+    totalHours = 0;
+    rate = 0;
+  } else {
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({ error: 'Period start and end are required' });
+    }
+
+    const timesheets = await prisma.timesheet.findMany({
+      where: {
+        clientId: Number(clientId),
+        date: { gte: parseDateOnly(periodStart), lte: parseDateOnly(periodEnd) },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const deductionMinutes = client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0;
+    adjustedTimesheets = timesheets.map((t) => ({
+      ...t,
+      totalHours: computeHours(t.startTime, t.endTime, deductionMinutes),
+    }));
+
+    totalHours = adjustedTimesheets.reduce((sum, t) => sum + Number(t.totalHours), 0);
+    rate = Number(client.payRate) || 0;
+    if (client.payRateType === 'HOURLY') subtotal = totalHours * rate;
+    else subtotal = (rate / 52 / 40) * totalHours;
+
+    // Fetch user to check HST setting.
+    const user = await prisma.user.findFirst();
+    const hasHst = !!(user?.hstNumber && String(user.hstNumber).trim());
+    hst13pct = hasHst ? parseFloat((subtotal * 0.13).toFixed(2)) : 0;
+    subtotal = parseFloat(subtotal.toFixed(2));
+    total = parseFloat((subtotal + hst13pct).toFixed(2));
+  }
 
   const last = await prisma.invoice.findFirst({ orderBy: { invoiceNum: 'desc' } });
   const invoiceNum = (last?.invoiceNum || 0) + 1;
@@ -88,8 +137,8 @@ router.post('/', authMiddleware, async (req, res) => {
     data: {
       clientId: Number(clientId),
       recruiterId: recruiterId ? Number(recruiterId) : null,
-      periodStart: parseDateOnly(periodStart),
-      periodEnd: parseDateOnly(periodEnd),
+      periodStart: parseDateOnly(normalizedPeriodStart),
+      periodEnd: parseDateOnly(normalizedPeriodEnd),
       totalHours,
       rate,
       subtotal,
@@ -101,7 +150,18 @@ router.post('/', authMiddleware, async (req, res) => {
   });
 
   // Generate PDF
-  const pdfBytes = await generateInvoicePDF(invoice, client, adjustedTimesheets, user || {}, recruiter);
+  const user = await prisma.user.findFirst();
+  const pdfBytes = await generateInvoicePDF(
+    invoice,
+    client,
+    adjustedTimesheets,
+    user || {},
+    recruiter,
+    {
+      invoiceSource,
+      expenses: selectedExpenses,
+    }
+  );
   const pdfDir = path.join('/app/uploads/invoices');
   fs.mkdirSync(pdfDir, { recursive: true });
   const pdfPath = path.join('invoices', `${invoice.id}.pdf`);

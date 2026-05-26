@@ -1,5 +1,7 @@
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const { format } = require('date-fns');
+const fs = require('fs');
+const path = require('path');
 const { formatDateOnly, formatDayOfWeek } = require('./dateOnly');
 
 function fmtDate(d) {
@@ -40,10 +42,83 @@ function buildServiceLocationLines(timesheets, client) {
   return uniq;
 }
 
-async function generateInvoicePDF(invoice, client, timesheets, user, recruiter = null) {
+function receiptFilename(receiptPath) {
+  if (!receiptPath) return '';
+  return String(receiptPath).split('/').pop() || '';
+}
+
+function splitTextToWidth(text, maxWidth, usedFont, size) {
+  const value = String(text || '');
+  if (!value) return [''];
+
+  const lines = [];
+  let current = '';
+
+  for (const ch of value) {
+    const candidate = `${current}${ch}`;
+    if (!current || usedFont.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = ch;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines;
+}
+
+async function appendExpenseReceiptPages(pdfDoc, expenses, palette, font, bold) {
+  const uniquePaths = [...new Set((expenses || []).map((x) => x.receiptImagePath).filter(Boolean))];
+  for (const relPath of uniquePaths) {
+    const absPath = path.join('/app/uploads', relPath);
+    if (!fs.existsSync(absPath)) continue;
+
+    const ext = path.extname(absPath).toLowerCase();
+    const fileName = receiptFilename(relPath) || 'receipt';
+    const bytes = fs.readFileSync(absPath);
+
+    if (ext === '.pdf') {
+      const src = await PDFDocument.load(bytes);
+      const copiedPages = await pdfDoc.copyPages(src, src.getPageIndices());
+      copiedPages.forEach((p) => pdfDoc.addPage(p));
+      continue;
+    }
+
+    if (ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg') {
+      const page = pdfDoc.addPage([612, 792]);
+      page.drawText('Receipt Attachment', { x: 50, y: 744, size: 16, font: bold, color: palette.ink });
+      page.drawText(fileName, { x: 50, y: 724, size: 10, font, color: palette.muted });
+      page.drawText('This receipt format cannot be embedded in PDF preview.', { x: 50, y: 684, size: 10, font, color: palette.body });
+      continue;
+    }
+
+    const page = pdfDoc.addPage([612, 792]);
+    page.drawText('Receipt Attachment', { x: 50, y: 744, size: 16, font: bold, color: palette.ink });
+    page.drawText(fileName, { x: 50, y: 724, size: 10, font, color: palette.muted });
+
+    const image = ext === '.png' ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+    const maxW = 612 - 100;
+    const maxH = 792 - 170;
+    const scale = Math.min(maxW / image.width, maxH / image.height, 1);
+    const drawW = image.width * scale;
+    const drawH = image.height * scale;
+    const x = (612 - drawW) / 2;
+    const y = (792 - 120 - drawH) / 2;
+
+    page.drawRectangle({ x: x - 6, y: y - 6, width: drawW + 12, height: drawH + 12, color: rgb(1, 1, 1), borderColor: palette.line, borderWidth: 1 });
+    page.drawImage(image, { x, y, width: drawW, height: drawH });
+  }
+}
+
+async function generateInvoicePDF(invoice, client, timesheets, user, recruiter = null, options = {}) {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([612, 792]);
   const { width, height } = page.getSize();
+
+  const expenses = Array.isArray(options?.expenses) ? options.expenses : [];
+  const invoiceSource = String(options?.invoiceSource || '').toUpperCase();
+  const isExpenseInvoice = invoiceSource === 'EXPENSE' || (expenses.length > 0 && Number(invoice.totalHours || 0) === 0 && Number(invoice.rate || 0) === 0);
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -280,20 +355,22 @@ async function generateInvoicePDF(invoice, client, timesheets, user, recruiter =
   ].filter(Boolean));
 
   drawCard(margin + 266, height - 160, 246, 126, 'Service Details', [
-    ...(serviceLines.length
-      ? serviceLines.map((line) => ({ type: 'service-location', shortName: line.shortName, address: line.address }))
-      : ['Location: N/A']),
+    ...(isExpenseInvoice
+      ? ['Expense reimbursement invoice']
+      : (serviceLines.length
+        ? serviceLines.map((line) => ({ type: 'service-location', shortName: line.shortName, address: line.address }))
+        : ['Location: N/A'])),
   ]);
 
   y = height - 310;
-  page.drawText('Detail Timesheet', {
+  page.drawText(isExpenseInvoice ? 'Expense Details' : 'Detail Timesheet', {
     x: margin,
     y,
     size: 14,
     font: bold,
     color: palette.ink,
   });
-  page.drawText('Daily technical service breakdown', {
+  page.drawText(isExpenseInvoice ? 'Selected reimbursable expenses' : 'Daily technical service breakdown', {
     x: margin,
     y: y - 14,
     size: 9,
@@ -302,8 +379,12 @@ async function generateInvoicePDF(invoice, client, timesheets, user, recruiter =
   });
 
   y -= 34;
-  const cols = [margin + 10, margin + 88, margin + 136, margin + 270, margin + 344, margin + 408, margin + 470];
-  const headers = ['Date', 'Day', 'Location', 'Start', 'End', 'Hours', 'Rate'];
+  const cols = isExpenseInvoice
+    ? [margin + 10, margin + 80, margin + 130, margin + 262, margin + 448]
+    : [margin + 10, margin + 88, margin + 136, margin + 270, margin + 344, margin + 408, margin + 470];
+  const headers = isExpenseInvoice
+    ? ['Date', 'Day', 'Description', 'Receipt', 'Amount']
+    : ['Date', 'Day', 'Location', 'Start', 'End', 'Hours', 'Rate'];
 
   page.drawRectangle({
     x: margin,
@@ -320,32 +401,69 @@ async function generateInvoicePDF(invoice, client, timesheets, user, recruiter =
   });
 
   let rowY = y - 34;
-  timesheets.forEach((t, idx) => {
-    page.drawRectangle({
-      x: margin,
-      y: rowY - 7,
-      width: width - margin * 2,
-      height: 18,
-      color: idx % 2 === 0 ? rgb(1, 1, 1) : palette.surface,
-      borderColor: palette.line,
-      borderWidth: 0.3,
+  if (isExpenseInvoice) {
+    expenses.forEach((x, idx) => {
+      const descLines = splitTextToWidth(String(x.desc || ''), 118, font, 8.8);
+      const receiptLines = splitTextToWidth(receiptFilename(x.receiptImagePath) || 'No receipt', 176, font, 8.2);
+      const lineGap = 10;
+      const lineCount = Math.max(descLines.length, receiptLines.length, 1);
+      const rectBottom = rowY - ((lineCount - 1) * lineGap) - 7;
+      const rectHeight = ((lineCount - 1) * lineGap) + 18;
+      const centerY = rowY - (((lineCount - 1) * lineGap) / 2);
+
+      page.drawRectangle({
+        x: margin,
+        y: rectBottom,
+        width: width - margin * 2,
+        height: rectHeight,
+        color: idx % 2 === 0 ? rgb(1, 1, 1) : palette.surface,
+        borderColor: palette.line,
+        borderWidth: 0.3,
+      });
+
+      page.drawText(fmtDate(x.dateTime), { x: cols[0], y: centerY, size: 8.8, font, color: palette.ink });
+      page.drawText(formatDayOfWeek(x.dateTime), { x: cols[1], y: centerY, size: 8.8, font, color: palette.body });
+
+      descLines.forEach((line, lineIdx) => {
+        page.drawText(line, { x: cols[2], y: rowY - (lineIdx * lineGap), size: 8.8, font, color: palette.ink });
+      });
+
+      receiptLines.forEach((line, lineIdx) => {
+        page.drawText(line, { x: cols[3], y: rowY - (lineIdx * lineGap), size: 8.2, font, color: palette.body });
+      });
+
+      drawRightText(`$${Number(x.amount || 0).toFixed(2)}`, right - 14, centerY, { size: 8.8, font: bold, color: palette.ink });
+
+      rowY = rectBottom - 11;
     });
+  } else {
+    timesheets.forEach((t, idx) => {
+      page.drawRectangle({
+        x: margin,
+        y: rowY - 7,
+        width: width - margin * 2,
+        height: 18,
+        color: idx % 2 === 0 ? rgb(1, 1, 1) : palette.surface,
+        borderColor: palette.line,
+        borderWidth: 0.3,
+      });
 
-    page.drawText(fmtDate(t.date), { x: cols[0], y: rowY, size: 8.8, font, color: palette.ink });
-    page.drawText(formatDayOfWeek(t.date), { x: cols[1], y: rowY, size: 8.8, font, color: palette.body });
-    page.drawText(String(t.location || '').substring(0, 20), { x: cols[2], y: rowY, size: 8.8, font, color: palette.ink });
-    page.drawText(t.startTime, { x: cols[3], y: rowY, size: 8.8, font, color: palette.body });
-    page.drawText(t.endTime, { x: cols[4], y: rowY, size: 8.8, font, color: palette.body });
-    page.drawText(Number(t.totalHours).toFixed(2), { x: cols[5], y: rowY, size: 8.8, font: bold, color: palette.ink });
-    page.drawText(`$${Number(invoice.rate).toFixed(2)}`, { x: cols[6], y: rowY, size: 8.8, font: bold, color: palette.ink });
+      page.drawText(fmtDate(t.date), { x: cols[0], y: rowY, size: 8.8, font, color: palette.ink });
+      page.drawText(formatDayOfWeek(t.date), { x: cols[1], y: rowY, size: 8.8, font, color: palette.body });
+      page.drawText(String(t.location || '').substring(0, 20), { x: cols[2], y: rowY, size: 8.8, font, color: palette.ink });
+      page.drawText(t.startTime, { x: cols[3], y: rowY, size: 8.8, font, color: palette.body });
+      page.drawText(t.endTime, { x: cols[4], y: rowY, size: 8.8, font, color: palette.body });
+      page.drawText(Number(t.totalHours).toFixed(2), { x: cols[5], y: rowY, size: 8.8, font: bold, color: palette.ink });
+      page.drawText(`$${Number(invoice.rate).toFixed(2)}`, { x: cols[6], y: rowY, size: 8.8, font: bold, color: palette.ink });
 
-    rowY -= 18;
-  });
+      rowY -= 18;
+    });
+  }
 
-  const hasHst = !!(user.hstNumber && String(user.hstNumber).trim());
+  const hasHst = !isExpenseInvoice && !!(user.hstNumber && String(user.hstNumber).trim());
   const boxW = 220;
   const boxX = right - boxW;
-  const boxH = hasHst ? 132 : 116;
+  const boxH = isExpenseInvoice ? 98 : (hasHst ? 132 : 116);
   let boxTop = rowY - 22;
 
   page.drawRectangle({
@@ -375,21 +493,29 @@ async function generateInvoicePDF(invoice, client, timesheets, user, recruiter =
   });
 
   let sY = boxTop - 38;
-  page.drawText('Total Hours', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
-  drawRightText(Number(invoice.totalHours).toFixed(2), boxX + boxW - 12, sY, { font: bold, color: palette.ink });
-
-  sY -= 16;
-  page.drawText('Rate', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
-  drawRightText(`$${Number(invoice.rate).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
-
-  sY -= 16;
-  page.drawText('Subtotal', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
-  drawRightText(`$${Number(invoice.subtotal).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
-
-  if (hasHst) {
+  if (isExpenseInvoice) {
+    page.drawText('Subtotal (tax-inclusive)', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+    drawRightText(`$${Number(invoice.subtotal).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
     sY -= 16;
-    page.drawText('HST (13%)', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
-    drawRightText(`$${Number(invoice.hst13pct).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+    page.drawText('Additional Tax', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+    drawRightText('$0.00', boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+  } else {
+    page.drawText('Total Hours', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+    drawRightText(Number(invoice.totalHours).toFixed(2), boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+
+    sY -= 16;
+    page.drawText('Rate', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+    drawRightText(`$${Number(invoice.rate).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+
+    sY -= 16;
+    page.drawText('Subtotal', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+    drawRightText(`$${Number(invoice.subtotal).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+
+    if (hasHst) {
+      sY -= 16;
+      page.drawText('HST (13%)', { x: boxX + 12, y: sY, size: 10, font, color: palette.ink });
+      drawRightText(`$${Number(invoice.hst13pct).toFixed(2)}`, boxX + boxW - 12, sY, { font: bold, color: palette.ink });
+    }
   }
 
   sY -= 18;
@@ -412,6 +538,10 @@ async function generateInvoicePDF(invoice, client, timesheets, user, recruiter =
     font: bold,
     color: palette.accent,
   });
+
+  if (isExpenseInvoice) {
+    await appendExpenseReceiptPages(pdfDoc, expenses, palette, font, bold);
+  }
 
   return pdfDoc.save();
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../api.js';
 import { 
   Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter, 
-  Calendar, DollarSign, Building2, Receipt, ArrowRight
+  Calendar, Building2, Receipt, ArrowRight
 } from 'lucide-react';
 
 function formatDateOnly(value) {
@@ -24,8 +24,17 @@ function downloadPdf(id) {
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [clients, setClients] = useState([]);
-  const [form, setForm] = useState({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '' });
+  const [form, setForm] = useState({
+    clientId: '',
+    billRecruiter: false,
+    periodStart: '',
+    periodEnd: '',
+    source: 'TIMESHEET',
+  });
   const [filters, setFilters] = useState({ clientId: '', status: '', periodStart: '', periodEnd: '' });
+  const [expenseOptions, setExpenseOptions] = useState([]);
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
+  const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -44,7 +53,7 @@ export default function Invoices() {
       if (filters.clientId) params.clientId = filters.clientId;
       if (filters.status) params.status = filters.status;
       if (filters.periodStart) params.periodStart = filters.periodStart;
-      if (filters.endDate) params.periodEnd = filters.periodEnd;
+      if (filters.periodEnd) params.periodEnd = filters.periodEnd;
       const r = await api.get('/invoices', { params });
       setInvoices(r.data);
     } finally {
@@ -54,19 +63,51 @@ export default function Invoices() {
 
   async function create(e) {
     e.preventDefault();
+    if (form.source === 'EXPENSE' && !selectedExpenseIds.length) {
+      alert('Please select at least one expense for this invoice.');
+      return;
+    }
+
     setGenerating(true);
     try {
       const payload = {
         clientId: form.clientId,
         recruiterId: form.billRecruiter ? selectedClient?.recruiterId : null,
-        periodStart: form.periodStart,
-        periodEnd: form.periodEnd,
+        periodStart: form.periodStart || null,
+        periodEnd: form.periodEnd || null,
+        source: form.source,
+        expenseIds: form.source === 'EXPENSE' ? selectedExpenseIds : undefined,
       };
       await api.post('/invoices', payload);
-      setForm({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '' });
+      setForm({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '', source: 'TIMESHEET' });
+      setExpenseOptions([]);
+      setSelectedExpenseIds([]);
       load();
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to generate invoice');
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function loadExpenseOptions(nextForm = form) {
+    if (nextForm.source !== 'EXPENSE' || !nextForm.clientId) {
+      setExpenseOptions([]);
+      setSelectedExpenseIds([]);
+      return;
+    }
+
+    setLoadingExpenses(true);
+    try {
+      const params = { clientId: nextForm.clientId };
+      if (nextForm.periodStart) params.startDate = nextForm.periodStart;
+      if (nextForm.periodEnd) params.endDate = nextForm.periodEnd;
+      const r = await api.get('/expenses', { params });
+      const rows = Array.isArray(r.data) ? r.data : [];
+      setExpenseOptions(rows);
+      setSelectedExpenseIds(rows.map((x) => x.id));
+    } finally {
+      setLoadingExpenses(false);
     }
   }
 
@@ -84,6 +125,25 @@ export default function Invoices() {
   function openPdf(id) {
     setPdfUrl(`/api/invoices/${id}/pdf`);
   }
+
+  function toggleExpense(id) {
+    setSelectedExpenseIds((prev) => (
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : [...prev, id]
+    ));
+  }
+
+  function toggleAllExpenses() {
+    if (selectedExpenseIds.length === expenseOptions.length) {
+      setSelectedExpenseIds([]);
+    } else {
+      setSelectedExpenseIds(expenseOptions.map((x) => x.id));
+    }
+  }
+
+  const selectedExpenses = expenseOptions.filter((x) => selectedExpenseIds.includes(x.id));
+  const selectedExpenseTotal = selectedExpenses.reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
   const selectedClient = clients.find(c => String(c.id) === String(form.clientId));
   const totalPending = invoices.filter(i => i.status === 'PENDING').reduce((s, i) => s + Number(i.total), 0);
@@ -115,9 +175,42 @@ export default function Invoices() {
 
       <form onSubmit={create} className="form-card mb-8">
         <h3 className="font-bold text-slate-900 mb-4 text-sm">Generate New Invoice</h3>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = { ...form, source: 'TIMESHEET' };
+              setForm(next);
+              loadExpenseOptions(next);
+            }}
+            className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'TIMESHEET' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
+          >
+            Timesheet Invoice
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = { ...form, source: 'EXPENSE' };
+              setForm(next);
+              loadExpenseOptions(next);
+            }}
+            className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'EXPENSE' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
+          >
+            Expense Invoice
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div>
-            <select required className="premium-select" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value, billRecruiter: false})}>
+            <select
+              required
+              className="premium-select"
+              value={form.clientId}
+              onChange={e => {
+                const next = { ...form, clientId: e.target.value, billRecruiter: false };
+                setForm(next);
+                loadExpenseOptions(next);
+              }}
+            >
               <option value="">Select Client</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -129,10 +222,30 @@ export default function Invoices() {
             </label>
           )}
           <div>
-            <input required type="date" className="premium-input" value={form.periodStart} onChange={e => setForm({...form, periodStart: e.target.value})} />
+            <input
+              required={form.source === 'TIMESHEET'}
+              type="date"
+              className="premium-input"
+              value={form.periodStart}
+              onChange={e => {
+                const next = { ...form, periodStart: e.target.value };
+                setForm(next);
+                loadExpenseOptions(next);
+              }}
+            />
           </div>
           <div>
-            <input required type="date" className="premium-input" value={form.periodEnd} onChange={e => setForm({...form, periodEnd: e.target.value})} />
+            <input
+              required={form.source === 'TIMESHEET'}
+              type="date"
+              className="premium-input"
+              value={form.periodEnd}
+              onChange={e => {
+                const next = { ...form, periodEnd: e.target.value };
+                setForm(next);
+                loadExpenseOptions(next);
+              }}
+            />
           </div>
           <button disabled={generating} className="premium-btn-primary h-[42px]">
             {generating ? (
@@ -142,6 +255,46 @@ export default function Invoices() {
             )}
           </button>
         </div>
+
+        {form.source === 'EXPENSE' && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">Select Expenses</p>
+                <p className="text-[11px] text-slate-500">Expense invoices are generated tax-inclusive. Additional HST is not added.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={toggleAllExpenses} className="premium-btn-secondary !py-1 !px-2 text-xs" disabled={!expenseOptions.length}>
+                  {selectedExpenseIds.length === expenseOptions.length && expenseOptions.length ? 'Unselect All' : 'Select All'}
+                </button>
+                <span className="text-xs text-slate-600">Selected: {selectedExpenseIds.length}</span>
+                <span className="text-xs font-semibold text-slate-800">Total: ${selectedExpenseTotal.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {loadingExpenses ? (
+              <p className="text-xs text-slate-500">Loading expenses...</p>
+            ) : expenseOptions.length === 0 ? (
+              <p className="text-xs text-slate-500">No expenses found for the selected client/date filter.</p>
+            ) : (
+              <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white">
+                {expenseOptions.map((x) => (
+                  <label key={x.id} className="flex items-center gap-2 px-3 py-2 border-b last:border-b-0 border-slate-100 cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={selectedExpenseIds.includes(x.id)}
+                      onChange={() => toggleExpense(x.id)}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-xs text-slate-700 min-w-[92px]">{String(x.dateTime).slice(0, 10)}</span>
+                    <span className="text-xs text-slate-700 flex-1 truncate">{x.desc}</span>
+                    <span className="text-xs font-semibold text-slate-900">${Number(x.amount).toFixed(2)}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </form>
 
       <div className="filter-bar mb-6">
@@ -184,6 +337,7 @@ export default function Invoices() {
               <tr>
                 <th>Invoice #</th>
                 <th>Client</th>
+                <th>Type</th>
                 <th>Period</th>
                 <th>Payment Received</th>
                 <th className="text-right">Hours</th>
@@ -194,9 +348,9 @@ export default function Invoices() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="py-8 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan={9} className="py-8 text-center text-slate-400">Loading...</td></tr>
               ) : invoices.length === 0 ? (
-                <tr><td colSpan={8}>
+                <tr><td colSpan={9}>
                   <div className="empty-state py-12">
                     <FileText className="w-10 h-10 mb-2 text-slate-300" />
                     <p className="text-sm font-medium text-slate-600">No invoices yet</p>
@@ -212,6 +366,11 @@ export default function Invoices() {
                         <Building2 className="w-3.5 h-3.5 text-slate-400" />
                         <span className="font-medium">{inv.client?.name}</span>
                       </div>
+                    </td>
+                    <td>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${Number(inv.totalHours) === 0 && Number(inv.rate) === 0 ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                        {Number(inv.totalHours) === 0 && Number(inv.rate) === 0 ? 'Expense' : 'Timesheet'}
+                      </span>
                     </td>
                     <td>
                       <div className="flex items-center gap-1.5 text-xs">
