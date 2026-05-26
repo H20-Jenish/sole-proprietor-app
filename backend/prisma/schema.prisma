@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int    @id @default(autoincrement())
+  email        String @unique
+  password     String
+  name         String
+  phone        String?
+  hstNumber    String @default("123456789RT0001")
+  businessName String @default("My Consulting Services")
+}
+
+model Client {
+  id               Int          @id @default(autoincrement())
+  name             String
+  phone            String?
+  paysBreak        Boolean      @default(false)
+  paidBreakMinutes Int          @default(0)
+  address          String?
+  siteLocations    Json?
+  locations        String[]
+  mainLocation     String?
+  sites            String[]     @default([])
+  connectVia       ConnectVia   @default(DIRECT)
+  recruiterId      Int?
+  recruiter        Recruiter?   @relation(fields: [recruiterId], references: [id], onDelete: SetNull)
+  recruiterAddress String?
+  payRate          Float        @default(0)
+  payRateType      PayRateType  @default(HOURLY)
+  contractLength   String?
+  serviceDesc      String?
+  contractDocPath  String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  expenses         Expense[]
+  timesheets       Timesheet[]
+  mileages         Mileage[]
+  carValuations    CarValuation[]
+  invoices         Invoice[]
+  documents        ClientDocument[]
+}
+
+model Expense {
+  id               Int      @id @default(autoincrement())
+  clientId         Int
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  dateTime         DateTime
+  amount           Float
+  desc             String
+  receiptImagePath String?
+  createdAt        DateTime @default(now())
+}
+
+model Timesheet {
+  id         Int      @id @default(autoincrement())
+  clientId   Int
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  location   String
+  date       DateTime @db.Date
+  startTime  String
+  endTime    String
+  totalHours Float
+  createdAt  DateTime @default(now())
+}
+
+model Invoice {
+  id           Int           @id @default(autoincrement())
+  clientId     Int
+  client       Client        @relation(fields: [clientId], references: [id])
+  recruiterId  Int?
+  periodStart  DateTime      @db.Date
+  periodEnd    DateTime      @db.Date
+  totalHours   Float
+  rate         Float
+  subtotal     Float
+  hst13pct     Float
+  total        Float
+  status       InvoiceStatus @default(PENDING)
+  paidDate     DateTime?     @db.Date
+  pdfPath      String?
+  invoiceNum   Int
+  createdDate  DateTime      @default(now())
+}
+
+model Recruiter {
+  id        Int      @id @default(autoincrement())
+  name      String
+  address   String
+  email     String?
+  phone     String?
+  fax       String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  clients   Client[]
+  documents RecruiterDocument[]
+}
+
+model ClientDocument {
+  id          Int      @id @default(autoincrement())
+  clientId    Int
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  filePath    String
+  filename    String
+  mimeType    String
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model RecruiterDocument {
+  id          Int       @id @default(autoincrement())
+  recruiterId Int
+  recruiter   Recruiter @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  filePath    String
+  filename    String
+  mimeType    String
+  description String?
+  createdAt   DateTime  @default(now())
+}
+
+model Mileage {
+  id            Int      @id @default(autoincrement())
+  clientId      Int
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  startOdometer Float?
+  endOdometer   Float?
+  mileage       Float?
+  purpose       String?
+  source        String?  @default("manual")
+  createdAt     DateTime @default(now())
+
+  @@unique([clientId, date])
+}
+
+model CarValuation {
+  id             Int      @id @default(autoincrement())
+  clientId       Int
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  carModel       String
+  modelYear      Int
+  valuationMonth DateTime @db.Date
+  totalValuation Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+enum ConnectVia {
+  DIRECT
+  MIDDLE_PARTY
+}
+
+enum PayRateType {
+  HOURLY
+  ANNUAL
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+}

@@ -1,0 +1,7 @@
+FROM nginx:alpine
+
+ENV TZ=America/Toronto
+
+RUN apk add --no-cache tzdata
+
+EXPOSE 80

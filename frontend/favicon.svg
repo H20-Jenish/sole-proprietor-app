@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sole Proprietor App">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#bg)" />
+  <path d="M22 24h20a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4V28a4 4 0 0 1 4-4Z" fill="#ffffff" fill-opacity="0.95" />
+  <path d="M25 24v-2a7 7 0 0 1 14 0v2" fill="none" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round" />
+  <circle cx="32" cy="34" r="2.5" fill="#4f46e5" />
+</svg>
