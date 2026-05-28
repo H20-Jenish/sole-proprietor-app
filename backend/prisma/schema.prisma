@@ -56,6 +56,7 @@ model Expense {
   desc             String
   receiptImagePath String?
   createdAt        DateTime @default(now())
+  invoiceItems     InvoiceItem[]
 }
 
 model Timesheet {
@@ -68,6 +69,7 @@ model Timesheet {
   endTime    String
   totalHours Float
   createdAt  DateTime @default(now())
+  invoiceItems InvoiceItem[]
 }
 
 model Invoice {
@@ -87,6 +89,18 @@ model Invoice {
   pdfPath      String?
   invoiceNum   Int
   createdDate  DateTime      @default(now())
+  items        InvoiceItem[]
+}
+
+model InvoiceItem {
+  id         Int       @id @default(autoincrement())
+  invoiceId  Int
+  invoice    Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  timesheetId Int?     @unique
+  timesheet  Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: SetNull)
+  expenseId  Int?      @unique
+  expense    Expense?  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
 }
 
 model Recruiter {

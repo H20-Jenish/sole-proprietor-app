@@ -58,7 +58,12 @@ router.get('/', authMiddleware, async (req, res) => {
   }
   const rows = await prisma.timesheet.findMany({
     where,
-    include: { client: { select: { id: true, name: true, paysBreak: true, paidBreakMinutes: true } } },
+    include: {
+      client: { select: { id: true, name: true, paysBreak: true, paidBreakMinutes: true } },
+      invoiceItems: {
+        include: { invoice: { select: { id: true, invoiceNum: true, status: true } } },
+      },
+    },
     orderBy: { date: 'desc' },
   });
   const adjusted = rows.map((r) => {
@@ -73,6 +78,9 @@ router.get('/', authMiddleware, async (req, res) => {
       ...r,
       location: shortLoc,
       totalHours: computeHours(r.startTime, r.endTime, deduction),
+      invoiceId: r.invoiceItems?.[0]?.invoice?.id || null,
+      invoiceNum: r.invoiceItems?.[0]?.invoice?.invoiceNum || null,
+      invoiceStatus: r.invoiceItems?.[0]?.invoice?.status || null,
     };
   });
   res.json(adjusted);

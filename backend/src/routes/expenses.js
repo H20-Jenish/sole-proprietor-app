@@ -37,10 +37,24 @@ router.get('/', authMiddleware, async (req, res) => {
   }
   const expenses = await prisma.expense.findMany({
     where,
-    include: { client: { select: { id: true, name: true } } },
+    include: {
+      client: { select: { id: true, name: true } },
+      invoiceItems: {
+        include: { invoice: { select: { id: true, invoiceNum: true, status: true } } },
+      },
+    },
     orderBy: { dateTime: 'desc' },
   });
-  res.json(expenses);
+  const enriched = expenses.map((expense) => {
+    const linkedInvoice = expense.invoiceItems?.[0]?.invoice || null;
+    return {
+      ...expense,
+      invoiceId: linkedInvoice?.id || null,
+      invoiceNum: linkedInvoice?.invoiceNum || null,
+      invoiceStatus: linkedInvoice?.status || null,
+    };
+  });
+  res.json(enriched);
 });
 
 router.post('/', authMiddleware, upload.single('receipt'), async (req, res) => {

@@ -87,6 +87,16 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Some selected expenses are invalid for this client' });
     }
 
+    const existingExpenseLinks = await prisma.invoiceItem.findMany({
+      where: { expenseId: { in: ids } },
+      include: { invoice: { select: { invoiceNum: true, status: true } } },
+    });
+    if (existingExpenseLinks.length) {
+      const first = existingExpenseLinks[0]?.invoice;
+      const invoiceLabel = first ? `#${first.invoiceNum} (${first.status})` : 'an existing invoice';
+      return res.status(409).json({ error: `One or more selected expenses are already invoiced in ${invoiceLabel}.` });
+    }
+
     const firstExpenseDate = formatDateOnly(selectedExpenses[0].dateTime);
     const lastExpenseDate = formatDateOnly(selectedExpenses[selectedExpenses.length - 1].dateTime);
     normalizedPeriodStart = normalizedPeriodStart || firstExpenseDate;
@@ -111,6 +121,19 @@ router.post('/', authMiddleware, async (req, res) => {
       orderBy: { date: 'asc' },
     });
 
+    const timesheetIds = timesheets.map((t) => t.id);
+    if (timesheetIds.length) {
+      const existingTimesheetLinks = await prisma.invoiceItem.findMany({
+        where: { timesheetId: { in: timesheetIds } },
+        include: { invoice: { select: { invoiceNum: true, status: true } } },
+      });
+      if (existingTimesheetLinks.length) {
+        const first = existingTimesheetLinks[0]?.invoice;
+        const invoiceLabel = first ? `#${first.invoiceNum} (${first.status})` : 'an existing invoice';
+        return res.status(409).json({ error: `One or more timesheets in this range are already invoiced in ${invoiceLabel}.` });
+      }
+    }
+
     const deductionMinutes = client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0;
     adjustedTimesheets = timesheets.map((t) => ({
       ...t,
@@ -133,21 +156,51 @@ router.post('/', authMiddleware, async (req, res) => {
   const last = await prisma.invoice.findFirst({ orderBy: { invoiceNum: 'desc' } });
   const invoiceNum = (last?.invoiceNum || 0) + 1;
 
-  const invoice = await prisma.invoice.create({
-    data: {
-      clientId: Number(clientId),
-      recruiterId: recruiterId ? Number(recruiterId) : null,
-      periodStart: parseDateOnly(normalizedPeriodStart),
-      periodEnd: parseDateOnly(normalizedPeriodEnd),
-      totalHours,
-      rate,
-      subtotal,
-      hst13pct,
-      total,
-      invoiceNum,
-    },
-    include: { client: true },
-  });
+  let invoice;
+  try {
+    invoice = await prisma.$transaction(async (tx) => {
+      const created = await tx.invoice.create({
+        data: {
+          clientId: Number(clientId),
+          recruiterId: recruiterId ? Number(recruiterId) : null,
+          periodStart: parseDateOnly(normalizedPeriodStart),
+          periodEnd: parseDateOnly(normalizedPeriodEnd),
+          totalHours,
+          rate,
+          subtotal,
+          hst13pct,
+          total,
+          invoiceNum,
+        },
+        include: { client: true },
+      });
+
+      if (invoiceSource === 'EXPENSE' && selectedExpenses.length) {
+        await tx.invoiceItem.createMany({
+          data: selectedExpenses.map((expense) => ({
+            invoiceId: created.id,
+            expenseId: expense.id,
+          })),
+        });
+      }
+
+      if (invoiceSource === 'TIMESHEET' && adjustedTimesheets.length) {
+        await tx.invoiceItem.createMany({
+          data: adjustedTimesheets.map((timesheet) => ({
+            invoiceId: created.id,
+            timesheetId: timesheet.id,
+          })),
+        });
+      }
+
+      return created;
+    });
+  } catch (err) {
+    if (err?.code === 'P2002') {
+      return res.status(409).json({ error: 'Some selected entries are already attached to an invoice.' });
+    }
+    throw err;
+  }
 
   // Generate PDF
   const user = await prisma.user.findFirst();

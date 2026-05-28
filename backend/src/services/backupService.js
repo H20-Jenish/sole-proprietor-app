@@ -13,8 +13,10 @@ const CONFIG_PATH = path.join(BACKUP_DIR, 'config.json');
 const APP_UPLOADS_DIR = '/app/uploads';
 
 const DEFAULT_INTERVAL_MINUTES = 360;
-const MIN_INTERVAL_MINUTES = 5;
-const MAX_INTERVAL_MINUTES = 10080;
+const MIN_INTERVAL_MINUTES = 120;
+const MAX_INTERVAL_MINUTES = 480;
+const MAX_SNAPSHOTS = 25;
+const PROTECTED_RECENT_SNAPSHOTS = 10;
 
 let timer = null;
 let state = {
@@ -175,11 +177,14 @@ async function createSnapshot(source = 'manual') {
       lastSnapshotAt: new Date().toISOString(),
     });
 
+    const prunedCount = pruneSnapshotsIfNeeded();
+
     const stat = fs.statSync(snapshotPath);
     return {
       fileName: snapshotName,
       fileSize: stat.size,
       createdAt: stat.birthtime.toISOString(),
+      prunedCount,
       intervalMinutes: updated.intervalMinutes,
       autoEnabled: updated.autoEnabled,
       lastSnapshotAt: updated.lastSnapshotAt,
@@ -196,7 +201,7 @@ function sanitizeSnapshotName(name) {
   return safe;
 }
 
-function listSnapshots() {
+function getSortedSnapshotEntries() {
   ensureDirs();
   return fs.readdirSync(SNAPSHOT_DIR)
     .filter((name) => name.endsWith('.tar.gz'))
@@ -205,11 +210,38 @@ function listSnapshots() {
       const stat = fs.statSync(fp);
       return {
         fileName: name,
+        filePath: fp,
         fileSize: stat.size,
         createdAt: stat.birthtime.toISOString(),
+        createdAtMs: stat.birthtime.getTime(),
       };
     })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+}
+
+function pruneSnapshotsIfNeeded() {
+  const snapshots = getSortedSnapshotEntries();
+  if (snapshots.length <= MAX_SNAPSHOTS) return 0;
+
+  const removable = snapshots.slice(MAX_SNAPSHOTS);
+  let deleted = 0;
+  removable.forEach((snapshot) => {
+    if (fs.existsSync(snapshot.filePath)) {
+      fs.unlinkSync(snapshot.filePath);
+      deleted += 1;
+    }
+  });
+
+  return deleted;
+}
+
+function listSnapshots() {
+  return getSortedSnapshotEntries().map((snapshot, index) => ({
+    fileName: snapshot.fileName,
+    fileSize: snapshot.fileSize,
+    createdAt: snapshot.createdAt,
+    canDelete: index >= PROTECTED_RECENT_SNAPSHOTS,
+  }));
 }
 
 function getSnapshotPath(name) {
@@ -218,6 +250,26 @@ function getSnapshotPath(name) {
   const full = path.join(SNAPSHOT_DIR, safe);
   if (!fs.existsSync(full)) return null;
   return full;
+}
+
+function deleteSnapshotByName(fileName) {
+  const safe = sanitizeSnapshotName(fileName);
+  if (!safe) throw new Error('Invalid snapshot name');
+
+  const snapshots = getSortedSnapshotEntries();
+  const index = snapshots.findIndex((snapshot) => snapshot.fileName === safe);
+  if (index === -1) throw new Error('Snapshot not found');
+  if (index < PROTECTED_RECENT_SNAPSHOTS) {
+    throw new Error(`Newest ${PROTECTED_RECENT_SNAPSHOTS} snapshots are protected and cannot be deleted`);
+  }
+
+  const snapshot = snapshots[index];
+  if (fs.existsSync(snapshot.filePath)) fs.unlinkSync(snapshot.filePath);
+
+  return {
+    ok: true,
+    deletedFileName: snapshot.fileName,
+  };
 }
 
 function mapDateRows(rows, dateKeys) {
@@ -364,6 +416,7 @@ function reschedule() {
 
 function initBackupScheduler() {
   state = readConfig();
+  pruneSnapshotsIfNeeded();
   reschedule();
 }
 
@@ -374,6 +427,7 @@ module.exports = {
   createSnapshot,
   listSnapshots,
   getSnapshotPath,
+  deleteSnapshotByName,
   restoreSnapshotByName,
   restoreSnapshotArchive,
   saveUploadedArchive,

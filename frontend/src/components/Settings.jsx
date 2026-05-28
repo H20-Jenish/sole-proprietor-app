@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api.js';
 import { useAuth } from '../context/AuthContext';
-import { Save, Settings as SettingsIcon, Shield, Download, Upload, RefreshCw } from 'lucide-react';
+import { Save, Settings as SettingsIcon, Shield, Download, Upload, RefreshCw, Trash2 } from 'lucide-react';
 
 export default function Settings() {
   const { applyUser } = useAuth();
@@ -18,13 +18,14 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [savingBackup, setSavingBackup] = useState(false);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [deleteBusyFile, setDeleteBusyFile] = useState('');
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [backup, setBackup] = useState({
     intervalMinutes: 360,
     autoEnabled: true,
     lastSnapshotAt: null,
-    minIntervalMinutes: 5,
-    maxIntervalMinutes: 10080,
+    minIntervalMinutes: 120,
+    maxIntervalMinutes: 480,
     snapshots: [],
   });
   const [restoreSnapshotFileName, setRestoreSnapshotFileName] = useState('');
@@ -55,8 +56,8 @@ export default function Settings() {
         intervalMinutes: b.data.intervalMinutes || 360,
         autoEnabled: b.data.autoEnabled !== false,
         lastSnapshotAt: b.data.lastSnapshotAt || null,
-        minIntervalMinutes: b.data.minIntervalMinutes || 5,
-        maxIntervalMinutes: b.data.maxIntervalMinutes || 10080,
+        minIntervalMinutes: b.data.minIntervalMinutes || 120,
+        maxIntervalMinutes: b.data.maxIntervalMinutes || 480,
         snapshots: Array.isArray(b.data.snapshots) ? b.data.snapshots : [],
       });
     } finally {
@@ -70,10 +71,28 @@ export default function Settings() {
       intervalMinutes: b.data.intervalMinutes || 360,
       autoEnabled: b.data.autoEnabled !== false,
       lastSnapshotAt: b.data.lastSnapshotAt || null,
-      minIntervalMinutes: b.data.minIntervalMinutes || 5,
-      maxIntervalMinutes: b.data.maxIntervalMinutes || 10080,
+      minIntervalMinutes: b.data.minIntervalMinutes || 120,
+      maxIntervalMinutes: b.data.maxIntervalMinutes || 480,
       snapshots: Array.isArray(b.data.snapshots) ? b.data.snapshots : [],
     });
+  }
+
+  async function deleteSnapshot(fileName) {
+    if (!fileName) return;
+    if (!confirm(`Delete snapshot ${fileName}?`)) return;
+
+    setErr('');
+    setOk('');
+    setDeleteBusyFile(fileName);
+    try {
+      await api.delete(`/settings/backup/snapshots/${encodeURIComponent(fileName)}`);
+      await reloadBackup();
+      setOk('Snapshot deleted successfully.');
+    } catch (error) {
+      setErr(error?.response?.data?.error || 'Failed to delete snapshot');
+    } finally {
+      setDeleteBusyFile('');
+    }
   }
 
   async function save(e) {
@@ -124,7 +143,7 @@ export default function Settings() {
         minIntervalMinutes: r.data.minIntervalMinutes,
         maxIntervalMinutes: r.data.maxIntervalMinutes,
       }));
-      setOk('Backup schedule updated successfully.');
+      setOk(`Backup schedule updated successfully. Auto-prune keeps up to 25 snapshots; newest 10 are protected.`);
     } catch (error) {
       setErr(error?.response?.data?.error || 'Failed to update backup schedule');
     } finally {
@@ -291,20 +310,21 @@ export default function Settings() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Auto Backup Interval (minutes)</label>
             <input
               type="number"
               min={backup.minIntervalMinutes}
               max={backup.maxIntervalMinutes}
-              className="premium-input"
+              className="premium-input h-[42px]"
               value={backup.intervalMinutes}
               onChange={e => setBackup({ ...backup, intervalMinutes: e.target.value })}
             />
           </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-2.5 text-sm text-slate-700 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg w-full">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Automation</label>
+            <label className="flex items-center gap-2.5 text-sm text-slate-700 px-3 h-[42px] bg-slate-50 border border-slate-200 rounded-lg w-full">
               <input
                 type="checkbox"
                 className="w-4 h-4"
@@ -314,12 +334,15 @@ export default function Settings() {
               Auto snapshot enabled
             </label>
           </div>
-          <div className="flex items-end">
-            <button type="button" onClick={saveBackupConfig} disabled={savingBackup} className="premium-btn-primary w-full">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Action</label>
+            <button type="button" onClick={saveBackupConfig} disabled={savingBackup} className="premium-btn-primary w-full h-[42px]">
               <Save className="w-4 h-4" /> {savingBackup ? 'Saving...' : 'Save Backup Settings'}
             </button>
           </div>
         </div>
+
+        <p className="text-[11px] text-slate-500 mb-5">Allowed range: {backup.minIntervalMinutes} to {backup.maxIntervalMinutes} minutes.</p>
 
         <div className="text-xs text-slate-500 mb-5">
           Last snapshot: {backup.lastSnapshotAt ? new Date(backup.lastSnapshotAt).toLocaleString() : 'Never'}
@@ -333,18 +356,30 @@ export default function Settings() {
                 <p className="text-xs text-slate-500">No snapshots yet.</p>
               ) : (
                 (backup.snapshots || []).map((s) => (
-                  <div key={s.fileName} className="flex items-center justify-between gap-2 p-2 rounded-lg border border-slate-100 bg-slate-50">
-                    <div className="min-w-0">
+                  <div key={s.fileName} className="flex items-center justify-between gap-3 p-2 rounded-lg border border-slate-100 bg-slate-50">
+                    <div className="min-w-0 flex-1">
                       <p className="text-xs font-semibold text-slate-800 truncate">{s.fileName}</p>
                       <p className="text-[11px] text-slate-500">{new Date(s.createdAt).toLocaleString()} • {(Number(s.fileSize) / (1024 * 1024)).toFixed(2)} MB</p>
                     </div>
-                    <button type="button" className="premium-btn-secondary !py-1.5 !px-2.5 text-xs" onClick={() => downloadSnapshot(s.fileName)}>
-                      <Download className="w-3.5 h-3.5" /> Download
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button type="button" className="premium-btn-secondary !py-1.5 !px-2.5 text-xs" onClick={() => downloadSnapshot(s.fileName)}>
+                        <Download className="w-3.5 h-3.5" /> Download
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!s.canDelete || deleteBusyFile === s.fileName}
+                        className={`premium-btn-danger !py-1.5 !px-2.5 text-xs ${!s.canDelete ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        onClick={() => deleteSnapshot(s.fileName)}
+                        title={s.canDelete ? 'Delete snapshot' : 'Newest 10 snapshots are protected'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> {deleteBusyFile === s.fileName ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
             </div>
+            <p className="text-[11px] text-slate-500 mt-2">Newest 10 snapshots are protected from manual deletion.</p>
           </div>
 
           <div className="border border-slate-200 rounded-xl p-4 bg-white">

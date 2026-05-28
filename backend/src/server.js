@@ -1,9 +1,12 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
+const { PrismaClient } = require('@prisma/client');
 const { initBackupScheduler } = require('./services/backupService');
+const { backfillInvoiceItems } = require('./services/invoiceItemBackfill');
 
 const app = express();
+const prisma = new PrismaClient();
 app.use(express.json());
 app.use(cookieParser());
 
@@ -29,7 +32,21 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, '0.0.0.0', () => {
-  initBackupScheduler();
-  console.log(`Backend running on port ${PORT}`);
-});
+
+async function startServer() {
+  try {
+    const result = await backfillInvoiceItems(prisma);
+    if (result.linksCreated > 0) {
+      console.log(`Invoice item backfill created ${result.linksCreated} links across ${result.invoicesScanned} invoices.`);
+    }
+  } catch (err) {
+    console.error('Invoice item backfill failed:', err.message || err);
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    initBackupScheduler();
+    console.log(`Backend running on port ${PORT}`);
+  });
+}
+
+startServer();

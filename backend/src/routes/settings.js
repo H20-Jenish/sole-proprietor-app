@@ -11,6 +11,7 @@ const {
   createSnapshot,
   listSnapshots,
   getSnapshotPath,
+  deleteSnapshotByName,
   restoreSnapshotByName,
   restoreSnapshotArchive,
   saveUploadedArchive,
@@ -89,6 +90,17 @@ router.post('/backup/snapshot', authMiddleware, async (_req, res) => {
 
 router.get('/backup/snapshots', authMiddleware, async (_req, res) => {
   res.json(listSnapshots());
+});
+
+router.delete('/backup/snapshots/:fileName', authMiddleware, async (req, res) => {
+  try {
+    const result = deleteSnapshotByName(req.params.fileName);
+    res.json(result);
+  } catch (error) {
+    const message = error?.message || 'Failed to delete snapshot';
+    const status = message.includes('protected') || message.includes('Invalid') ? 400 : 404;
+    res.status(status).json({ error: message });
+  }
 });
 
 router.get('/backup/download/:fileName', authMiddleware, async (req, res) => {

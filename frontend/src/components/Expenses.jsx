@@ -28,6 +28,8 @@ export default function Expenses() {
   const [clients, setClients] = useState([]);
   const [form, setForm] = useState({ clientId: '', date: '', amount: '', desc: '', receipt: null });
   const [filters, setFilters] = useState({ clientId: '', startDate: '', endDate: '' });
+  const [showFilters, setShowFilters] = useState(false);
+  const [entryOpen, setEntryOpen] = useState(false);
   const [viewer, setViewer] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -66,6 +68,7 @@ export default function Expenses() {
       await api.post('/expenses', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     }
     setForm({ clientId: '', date: '', amount: '', desc: '', receipt: null });
+    setEntryOpen(false);
     load();
   }
 
@@ -78,6 +81,7 @@ export default function Expenses() {
       desc: x.desc || '',
       receipt: null,
     });
+    setEntryOpen(true);
   }
 
   async function remove(id) {
@@ -99,6 +103,12 @@ export default function Expenses() {
     a.click();
   }
 
+  function invoiceRowClass(expense) {
+    if (expense.invoiceStatus === 'PAID') return 'bg-emerald-50/70 border-l-4 border-emerald-400';
+    if (expense.invoiceStatus === 'PENDING') return 'bg-amber-50/70 border-l-4 border-amber-400';
+    return '';
+  }
+
   const totalAmount = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
   return (
@@ -108,74 +118,65 @@ export default function Expenses() {
           <h1 className="page-title">Expenses</h1>
           <p className="text-sm text-slate-500 mt-1">Track and manage business expenses</p>
         </div>
-        <button onClick={exportXLSX} className="premium-btn-success">
-          <Download className="w-4 h-4" /> Export XLSX
-        </button>
-      </div>
-
-      <div className="filter-bar">
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Client</label>
-          <select className="premium-select" value={filters.clientId} onChange={e => setFilters({...filters, clientId: e.target.value})}>
-            <option value="">All Clients</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">From</label>
-          <input type="date" className="premium-input" value={filters.startDate} onChange={e => setFilters({...filters, startDate: e.target.value})} />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">To</label>
-          <input type="date" className="premium-input" value={filters.endDate} onChange={e => setFilters({...filters, endDate: e.target.value})} />
-        </div>
-        <button onClick={load} className="premium-btn-secondary h-[42px]">
-          <Filter className="w-4 h-4" /> Apply Filters
-        </button>
-      </div>
-
-      <form onSubmit={add} className="form-card mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-900 text-sm">{form.id ? 'Edit Expense' : 'Log New Expense'}</h3>
-          {form.id && (
-            <button type="button" onClick={() => setForm({ clientId: '', date: '', amount: '', desc: '', receipt: null })} className="premium-btn-secondary !py-1.5 !px-3 text-xs">
-              <X className="w-3.5 h-3.5" /> Cancel Edit
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
-          <div className="md:col-span-1">
-            <select required className="premium-select" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}>
-              <option value="">Select Client</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="md:col-span-1">
-            <input required type="date" className="premium-input" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-          </div>
-          <div className="md:col-span-1">
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input required type="number" step="0.01" placeholder="0.00" className="premium-input pl-9" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
-            </div>
-          </div>
-          <div className="md:col-span-2">
-            <input required placeholder="What was this expense for?" className="premium-input" value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} />
-          </div>
-          <div className="md:col-span-1">
-            <label className="premium-btn-secondary w-full cursor-pointer">
-              <Image className="w-4 h-4" /> 
-              <span className="text-xs">{form.receipt ? '1 file' : 'Receipt'}</span>
-              <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => setForm({...form, receipt: e.target.files[0]})} />
-            </label>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button className="premium-btn-primary">
-            {form.id ? <><Edit2 className="w-4 h-4" /> Update Expense</> : <><Plus className="w-4 h-4" /> Add Expense</>}
+        <div className="flex items-center gap-2">
+          <button onClick={exportXLSX} className="premium-btn-success">
+            <Download className="w-4 h-4" /> Export XLSX
+          </button>
+          <button
+            onClick={() => {
+              setForm({ clientId: '', date: '', amount: '', desc: '', receipt: null });
+              setEntryOpen(true);
+            }}
+            className="premium-btn-primary"
+          >
+            <Plus className="w-4 h-4" /> New Expense
           </button>
         </div>
-      </form>
+      </div>
+
+      <div className="form-card py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm text-slate-700 font-semibold">
+            <Filter className="w-4 h-4 text-slate-500" /> Filters
+          </div>
+          <button onClick={() => setShowFilters(!showFilters)} className="premium-btn-secondary !py-1.5 !px-3 text-xs">
+            {showFilters ? 'Hide Filters' : 'Show Filters'}
+          </button>
+        </div>
+        {showFilters && (
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Client</label>
+              <select className="premium-select" value={filters.clientId} onChange={e => setFilters({...filters, clientId: e.target.value})}>
+                <option value="">All Clients</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">From</label>
+              <input type="date" className="premium-input" value={filters.startDate} onChange={e => setFilters({...filters, startDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">To</label>
+              <input type="date" className="premium-input" value={filters.endDate} onChange={e => setFilters({...filters, endDate: e.target.value})} />
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={load} className="premium-btn-secondary h-[42px] flex-1">
+                <Filter className="w-4 h-4" /> Apply
+              </button>
+              <button
+                onClick={() => {
+                  setFilters({ clientId: '', startDate: '', endDate: '' });
+                  setTimeout(load, 0);
+                }}
+                className="premium-btn-secondary h-[42px]"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="form-card overflow-hidden p-0">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -183,6 +184,8 @@ export default function Expenses() {
             <Receipt className="w-4 h-4 text-slate-400" />
             <h3 className="font-bold text-slate-900 text-sm">Expense Records</h3>
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{expenses.length}</span>
+            <span className="ml-3 inline-flex items-center gap-1 text-xs text-slate-500"><span className="w-3 h-3 rounded-sm bg-amber-100 border border-amber-300" /> Invoiced (Pending)</span>
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500"><span className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-300" /> Invoiced (Paid)</span>
           </div>
           <div className="text-sm font-semibold text-slate-700">
             Total: <span className="text-slate-900">${totalAmount.toFixed(2)}</span>
@@ -214,11 +217,11 @@ export default function Expenses() {
                 </td></tr>
               ) : (
                 expenses.map(x => (
-                  <tr key={x.id}>
+                  <tr key={x.id} className={invoiceRowClass(x)}>
                     <td className="whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{new Date(x.dateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        <span>{new Date(x.dateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</span>
                       </div>
                     </td>
                     <td>
@@ -268,6 +271,60 @@ export default function Expenses() {
           </table>
         </div>
       </div>
+
+      {entryOpen && (
+        <div className="modal-overlay" onClick={() => setEntryOpen(false)}>
+          <div className="modal-content max-w-5xl" onClick={e => e.stopPropagation()}>
+            <form onSubmit={add} className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900 text-sm">{form.id ? 'Edit Expense' : 'Log New Expense'}</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryOpen(false);
+                    setForm({ clientId: '', date: '', amount: '', desc: '', receipt: null });
+                  }}
+                  className="premium-btn-secondary !py-1.5 !px-3 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" /> Close
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                <div className="md:col-span-1">
+                  <select required className="premium-select" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}>
+                    <option value="">Select Client</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="md:col-span-1">
+                  <input required type="date" className="premium-input" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                </div>
+                <div className="md:col-span-1">
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input required type="number" step="0.01" placeholder="0.00" className="premium-input pl-9" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <input required placeholder="What was this expense for?" className="premium-input" value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="premium-btn-secondary w-full cursor-pointer">
+                    <Image className="w-4 h-4" />
+                    <span className="text-xs">{form.receipt ? '1 file' : 'Receipt'}</span>
+                    <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => setForm({...form, receipt: e.target.files[0]})} />
+                  </label>
+                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button className="premium-btn-primary">
+                  {form.id ? <><Edit2 className="w-4 h-4" /> Update Expense</> : <><Plus className="w-4 h-4" /> Add Expense</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {viewer && <FileViewer {...viewer} onClose={() => setViewer(null)} />}
     </div>

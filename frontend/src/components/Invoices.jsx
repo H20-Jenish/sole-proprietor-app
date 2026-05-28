@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../api.js';
 import { 
   Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter, 
-  Calendar, Building2, Receipt, ArrowRight
+  Calendar, Building2, Receipt, ArrowRight, X
 } from 'lucide-react';
 
 function formatDateOnly(value) {
@@ -32,6 +32,8 @@ export default function Invoices() {
     source: 'TIMESHEET',
   });
   const [filters, setFilters] = useState({ clientId: '', status: '', periodStart: '', periodEnd: '' });
+  const [showFilters, setShowFilters] = useState(false);
+  const [entryOpen, setEntryOpen] = useState(false);
   const [expenseOptions, setExpenseOptions] = useState([]);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
@@ -82,6 +84,7 @@ export default function Invoices() {
       setForm({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '', source: 'TIMESHEET' });
       setExpenseOptions([]);
       setSelectedExpenseIds([]);
+      setEntryOpen(false);
       load();
     } catch (err) {
       alert(err?.response?.data?.error || 'Failed to generate invoice');
@@ -105,7 +108,7 @@ export default function Invoices() {
       const r = await api.get('/expenses', { params });
       const rows = Array.isArray(r.data) ? r.data : [];
       setExpenseOptions(rows);
-      setSelectedExpenseIds(rows.map((x) => x.id));
+      setSelectedExpenseIds(rows.filter((x) => !x.invoiceId).map((x) => x.id));
     } finally {
       setLoadingExpenses(false);
     }
@@ -127,6 +130,8 @@ export default function Invoices() {
   }
 
   function toggleExpense(id) {
+    const target = expenseOptions.find((x) => x.id === id);
+    if (target?.invoiceId) return;
     setSelectedExpenseIds((prev) => (
       prev.includes(id)
         ? prev.filter((x) => x !== id)
@@ -135,10 +140,11 @@ export default function Invoices() {
   }
 
   function toggleAllExpenses() {
-    if (selectedExpenseIds.length === expenseOptions.length) {
+    const selectableIds = expenseOptions.filter((x) => !x.invoiceId).map((x) => x.id);
+    if (selectedExpenseIds.length === selectableIds.length) {
       setSelectedExpenseIds([]);
     } else {
-      setSelectedExpenseIds(expenseOptions.map((x) => x.id));
+      setSelectedExpenseIds(selectableIds);
     }
   }
 
@@ -156,6 +162,17 @@ export default function Invoices() {
           <h1 className="page-title">Invoices</h1>
           <p className="text-sm text-slate-500 mt-1">Generate and manage client invoices</p>
         </div>
+        <button
+          onClick={() => {
+            setForm({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '', source: 'TIMESHEET' });
+            setExpenseOptions([]);
+            setSelectedExpenseIds([]);
+            setEntryOpen(true);
+          }}
+          className="premium-btn-primary"
+        >
+          <Plus className="w-4 h-4" /> New Invoice
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -173,153 +190,52 @@ export default function Invoices() {
         </div>
       </div>
 
-      <form onSubmit={create} className="form-card mb-8">
-        <h3 className="font-bold text-slate-900 mb-4 text-sm">Generate New Invoice</h3>
-        <div className="mb-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              const next = { ...form, source: 'TIMESHEET' };
-              setForm(next);
-              loadExpenseOptions(next);
-            }}
-            className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'TIMESHEET' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
-          >
-            Timesheet Invoice
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = { ...form, source: 'EXPENSE' };
-              setForm(next);
-              loadExpenseOptions(next);
-            }}
-            className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'EXPENSE' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
-          >
-            Expense Invoice
+      <div className="form-card py-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm text-slate-700 font-semibold">
+            <Filter className="w-4 h-4 text-slate-500" /> Filters
+          </div>
+          <button onClick={() => setShowFilters(!showFilters)} className="premium-btn-secondary !py-1.5 !px-3 text-xs">
+            {showFilters ? 'Hide Filters' : 'Show Filters'}
           </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-          <div>
-            <select
-              required
-              className="premium-select"
-              value={form.clientId}
-              onChange={e => {
-                const next = { ...form, clientId: e.target.value, billRecruiter: false };
-                setForm(next);
-                loadExpenseOptions(next);
-              }}
-            >
-              <option value="">Select Client</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          {selectedClient?.connectVia === 'MIDDLE_PARTY' && selectedClient?.recruiterId && (
-            <label className="flex items-center gap-2.5 px-1 py-2.5 text-sm text-slate-700 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
-              <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={form.billRecruiter} onChange={e => setForm({...form, billRecruiter: e.target.checked})} />
-              <span>Bill Recruiter ({selectedClient?.recruiter?.name || 'linked'})</span>
-            </label>
-          )}
-          <div>
-            <input
-              required={form.source === 'TIMESHEET'}
-              type="date"
-              className="premium-input"
-              value={form.periodStart}
-              onChange={e => {
-                const next = { ...form, periodStart: e.target.value };
-                setForm(next);
-                loadExpenseOptions(next);
-              }}
-            />
-          </div>
-          <div>
-            <input
-              required={form.source === 'TIMESHEET'}
-              type="date"
-              className="premium-input"
-              value={form.periodEnd}
-              onChange={e => {
-                const next = { ...form, periodEnd: e.target.value };
-                setForm(next);
-                loadExpenseOptions(next);
-              }}
-            />
-          </div>
-          <button disabled={generating} className="premium-btn-primary h-[42px]">
-            {generating ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <><Plus className="w-4 h-4" /> Generate</>
-            )}
-          </button>
-        </div>
-
-        {form.source === 'EXPENSE' && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div>
-                <p className="text-xs font-semibold text-slate-700">Select Expenses</p>
-                <p className="text-[11px] text-slate-500">Expense invoices are generated tax-inclusive. Additional HST is not added.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={toggleAllExpenses} className="premium-btn-secondary !py-1 !px-2 text-xs" disabled={!expenseOptions.length}>
-                  {selectedExpenseIds.length === expenseOptions.length && expenseOptions.length ? 'Unselect All' : 'Select All'}
-                </button>
-                <span className="text-xs text-slate-600">Selected: {selectedExpenseIds.length}</span>
-                <span className="text-xs font-semibold text-slate-800">Total: ${selectedExpenseTotal.toFixed(2)}</span>
-              </div>
+        {showFilters && (
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+              <select className="premium-select" value={filters.clientId} onChange={e => setFilters({...filters, clientId: e.target.value})}>
+                <option value="">All Clients</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
-
-            {loadingExpenses ? (
-              <p className="text-xs text-slate-500">Loading expenses...</p>
-            ) : expenseOptions.length === 0 ? (
-              <p className="text-xs text-slate-500">No expenses found for the selected client/date filter.</p>
-            ) : (
-              <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white">
-                {expenseOptions.map((x) => (
-                  <label key={x.id} className="flex items-center gap-2 px-3 py-2 border-b last:border-b-0 border-slate-100 cursor-pointer hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={selectedExpenseIds.includes(x.id)}
-                      onChange={() => toggleExpense(x.id)}
-                      className="w-4 h-4"
-                    />
-                    <span className="text-xs text-slate-700 min-w-[92px]">{String(x.dateTime).slice(0, 10)}</span>
-                    <span className="text-xs text-slate-700 flex-1 truncate">{x.desc}</span>
-                    <span className="text-xs font-semibold text-slate-900">${Number(x.amount).toFixed(2)}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            <div>
+              <select className="premium-select" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
+                <option value="">All Status</option>
+                <option value="PENDING">Pending</option>
+                <option value="PAID">Paid</option>
+              </select>
+            </div>
+            <div>
+              <input type="date" className="premium-input" value={filters.periodStart} onChange={e => setFilters({...filters, periodStart: e.target.value})} />
+            </div>
+            <div>
+              <input type="date" className="premium-input" value={filters.periodEnd} onChange={e => setFilters({...filters, periodEnd: e.target.value})} />
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={load} className="premium-btn-secondary h-[42px] flex-1">
+                <Filter className="w-4 h-4" /> Apply
+              </button>
+              <button
+                onClick={() => {
+                  setFilters({ clientId: '', status: '', periodStart: '', periodEnd: '' });
+                  setTimeout(load, 0);
+                }}
+                className="premium-btn-secondary h-[42px]"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         )}
-      </form>
-
-      <div className="filter-bar mb-6">
-        <div>
-          <select className="premium-select" value={filters.clientId} onChange={e => setFilters({...filters, clientId: e.target.value})}>
-            <option value="">All Clients</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <select className="premium-select" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
-            <option value="">All Status</option>
-            <option value="PENDING">Pending</option>
-            <option value="PAID">Paid</option>
-          </select>
-        </div>
-        <div>
-          <input type="date" className="premium-input" value={filters.periodStart} onChange={e => setFilters({...filters, periodStart: e.target.value})} />
-        </div>
-        <div>
-          <input type="date" className="premium-input" value={filters.periodEnd} onChange={e => setFilters({...filters, periodEnd: e.target.value})} />
-        </div>
-        <button onClick={load} className="premium-btn-secondary h-[42px]">
-          <Filter className="w-4 h-4" /> Filter
-        </button>
       </div>
 
       <div className="form-card overflow-hidden p-0">
@@ -434,6 +350,153 @@ export default function Invoices() {
             <div className="flex-1 overflow-auto p-2 bg-slate-100">
               <iframe src={pdfUrl} title="Invoice" className="w-full h-[70vh] rounded-lg shadow-sm bg-white" />
             </div>
+          </div>
+        </div>
+      )}
+
+      {entryOpen && (
+        <div className="modal-overlay" onClick={() => setEntryOpen(false)}>
+          <div className="modal-content max-w-5xl" onClick={e => e.stopPropagation()}>
+            <form onSubmit={create} className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900 text-sm">Generate New Invoice</h3>
+                <button
+                  type="button"
+                  onClick={() => setEntryOpen(false)}
+                  className="premium-btn-secondary !py-1.5 !px-3 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" /> Close
+                </button>
+              </div>
+
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...form, source: 'TIMESHEET' };
+                    setForm(next);
+                    loadExpenseOptions(next);
+                  }}
+                  className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'TIMESHEET' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
+                >
+                  Timesheet Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...form, source: 'EXPENSE' };
+                    setForm(next);
+                    loadExpenseOptions(next);
+                  }}
+                  className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'EXPENSE' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
+                >
+                  Expense Invoice
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                <div>
+                  <select
+                    required
+                    className="premium-select"
+                    value={form.clientId}
+                    onChange={e => {
+                      const next = { ...form, clientId: e.target.value, billRecruiter: false };
+                      setForm(next);
+                      loadExpenseOptions(next);
+                    }}
+                  >
+                    <option value="">Select Client</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                {selectedClient?.connectVia === 'MIDDLE_PARTY' && selectedClient?.recruiterId && (
+                  <label className="flex items-center gap-2.5 px-1 py-2.5 text-sm text-slate-700 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={form.billRecruiter} onChange={e => setForm({...form, billRecruiter: e.target.checked})} />
+                    <span>Bill Recruiter ({selectedClient?.recruiter?.name || 'linked'})</span>
+                  </label>
+                )}
+                <div>
+                  <input
+                    required={form.source === 'TIMESHEET'}
+                    type="date"
+                    className="premium-input"
+                    value={form.periodStart}
+                    onChange={e => {
+                      const next = { ...form, periodStart: e.target.value };
+                      setForm(next);
+                      loadExpenseOptions(next);
+                    }}
+                  />
+                </div>
+                <div>
+                  <input
+                    required={form.source === 'TIMESHEET'}
+                    type="date"
+                    className="premium-input"
+                    value={form.periodEnd}
+                    onChange={e => {
+                      const next = { ...form, periodEnd: e.target.value };
+                      setForm(next);
+                      loadExpenseOptions(next);
+                    }}
+                  />
+                </div>
+                <button disabled={generating} className="premium-btn-primary h-[42px]">
+                  {generating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <><Plus className="w-4 h-4" /> Generate</>
+                  )}
+                </button>
+              </div>
+
+              {form.source === 'EXPENSE' && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">Select Expenses</p>
+                      <p className="text-[11px] text-slate-500">Expense invoices are generated tax-inclusive. Additional HST is not added.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={toggleAllExpenses} className="premium-btn-secondary !py-1 !px-2 text-xs" disabled={!expenseOptions.length}>
+                        {selectedExpenseIds.length === expenseOptions.length && expenseOptions.length ? 'Unselect All' : 'Select All'}
+                      </button>
+                      <span className="text-xs text-slate-600">Selected: {selectedExpenseIds.length}</span>
+                      <span className="text-xs font-semibold text-slate-800">Total: ${selectedExpenseTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {loadingExpenses ? (
+                    <p className="text-xs text-slate-500">Loading expenses...</p>
+                  ) : expenseOptions.length === 0 ? (
+                    <p className="text-xs text-slate-500">No expenses found for the selected client/date filter.</p>
+                  ) : (
+                    <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white">
+                      {expenseOptions.map((x) => (
+                        <label key={x.id} className={`flex items-center gap-2 px-3 py-2 border-b last:border-b-0 border-slate-100 ${x.invoiceId ? 'bg-slate-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedExpenseIds.includes(x.id)}
+                            disabled={!!x.invoiceId}
+                            onChange={() => toggleExpense(x.id)}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-xs text-slate-700 min-w-[92px]">{String(x.dateTime).slice(0, 10)}</span>
+                          <span className="text-xs text-slate-700 flex-1 truncate">{x.desc}</span>
+                          {x.invoiceId && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${x.invoiceStatus === 'PAID' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {x.invoiceStatus === 'PAID' ? 'Paid Invoice' : 'Invoiced'} #{x.invoiceNum}
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-slate-900">${Number(x.amount).toFixed(2)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </form>
           </div>
         </div>
       )}
