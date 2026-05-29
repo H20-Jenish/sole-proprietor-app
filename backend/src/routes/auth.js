@@ -61,6 +61,20 @@ router.post('/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/reauth', authMiddleware, async (req, res) => {
+  const password = String(req.body?.password || '');
+  if (!password) return res.status(400).json({ error: 'Password is required' });
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return res.status(401).json({ error: 'Invalid password' });
+
+  const token = jwt.sign({ userId: user.id, purpose: 'reauth' }, JWT_SECRET, { expiresIn: '15m' });
+  res.json({ token, expiresInSeconds: 900 });
+});
+
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
   if (!user) return res.status(404).json({ error: 'User not found' });

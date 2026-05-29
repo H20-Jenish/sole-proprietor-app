@@ -104,7 +104,6 @@ export default function Clients() {
   }
 
   async function remove(id) {
-    if (!confirm('Delete this client and all related data? This action cannot be undone.')) return;
     await api.delete(`/clients/${id}`);
     load();
   }
@@ -127,7 +126,6 @@ export default function Clients() {
   }
 
   async function removeDocument(clientId, docId) {
-    if (!confirm('Delete this document?')) return;
     await api.delete(`/clients/${clientId}/documents/${docId}`);
     load();
   }

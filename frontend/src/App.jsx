@@ -10,6 +10,8 @@ import Timesheets from './components/Timesheets';
 import Invoices from './components/Invoices';
 import Settings from './components/Settings';
 import Resources from './components/Resources';
+import SecurityGateModalHost from './components/SecurityGateModalHost';
+import Reports from './components/Reports';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -29,6 +31,7 @@ function AppRoutes() {
         <Route path="expenses" element={<Expenses />} />
         <Route path="timesheets" element={<Timesheets />} />
         <Route path="invoices" element={<Invoices />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
         <Route path="resources" element={<Resources />} />
       </Route>
@@ -41,6 +44,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <AppRoutes />
+        <SecurityGateModalHost />
       </AuthProvider>
     </BrowserRouter>
   );

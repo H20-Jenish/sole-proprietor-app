@@ -117,6 +117,10 @@
   .status-paid {
     @apply status-badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20;
   }
+
+  .status-partial {
+    @apply status-badge bg-violet-50 text-violet-700 ring-1 ring-violet-600/20;
+  }
   
   .page-header {
     @apply flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8;

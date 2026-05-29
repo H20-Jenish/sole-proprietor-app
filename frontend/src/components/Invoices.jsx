@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import api from '../api.js';
 import { 
-  Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter, 
-  Calendar, Building2, Receipt, ArrowRight, X
+  Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter,
+  Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 function formatDateOnly(value) {
@@ -37,7 +37,12 @@ export default function Invoices() {
   const [expenseOptions, setExpenseOptions] = useState([]);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentInvoice, setPaymentInvoice] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({ amountPaid: '', notes: '', payStatement: null, keepExistingPayStatement: false });
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [expandedInvoiceId, setExpandedInvoiceId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
 
@@ -115,18 +120,88 @@ export default function Invoices() {
   }
 
   async function markPaid(id) {
-    await api.put(`/invoices/${id}/status`, { status: 'PAID' });
-    load();
+    const inv = invoices.find((x) => x.id === id);
+    if (!inv) return;
+    setPaymentInvoice(inv);
+    setPaymentForm({
+      amountPaid: Number(inv.amountPaid || inv.total).toFixed(2),
+      notes: inv.paidNotes || '',
+      payStatement: null,
+      keepExistingPayStatement: !!inv.payStatementPath,
+    });
+    setPaymentModalOpen(true);
+  }
+
+  async function submitPayment(e) {
+    e.preventDefault();
+    if (!paymentInvoice) return;
+
+    const amountPaid = Number(paymentForm.amountPaid);
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+      alert('Amount paid must be greater than 0.');
+      return;
+    }
+    if (!paymentForm.payStatement && !paymentForm.keepExistingPayStatement) {
+      alert('Please upload a pay statement before marking this invoice paid.');
+      return;
+    }
+
+    setSavingPayment(true);
+    try {
+      const fd = new FormData();
+      fd.append('amountPaid', String(amountPaid));
+      fd.append('notes', paymentForm.notes || '');
+      fd.append('keepExistingPayStatement', paymentForm.keepExistingPayStatement ? 'true' : 'false');
+      if (paymentForm.payStatement) fd.append('payStatement', paymentForm.payStatement);
+
+      await api.put(`/invoices/${paymentInvoice.id}/payment`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setPaymentModalOpen(false);
+      setPaymentInvoice(null);
+      setPaymentForm({ amountPaid: '', notes: '', payStatement: null, keepExistingPayStatement: false });
+      load();
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to record payment');
+    } finally {
+      setSavingPayment(false);
+    }
   }
 
   async function remove(id) {
-    if (!confirm('Delete this invoice?')) return;
     await api.delete(`/invoices/${id}`);
     load();
   }
 
   function openPdf(id) {
-    setPdfUrl(`/api/invoices/${id}/pdf`);
+    setPreviewFile({
+      url: `/api/invoices/${id}/pdf`,
+      downloadUrl: `/api/invoices/${id}/pdf?download=1`,
+      title: 'Invoice Preview',
+    });
+  }
+
+  function openPayStatement(id) {
+    setPreviewFile({
+      url: `/api/invoices/${id}/paystatement`,
+      downloadUrl: `/api/invoices/${id}/paystatement?download=1`,
+      title: 'Pay Statement Preview',
+    });
+  }
+
+  function downloadPayStatement(id) {
+    window.open(`/api/invoices/${id}/paystatement?download=1`, '_blank', 'noopener,noreferrer');
+  }
+
+  function canExpandPaymentDetails(inv) {
+    return (inv.status === 'PAID' || inv.status === 'PARTIAL') && (!!inv.payStatementPath || !!String(inv.paidNotes || '').trim());
+  }
+
+  function onInvoiceRowClick(e, inv) {
+    if (!canExpandPaymentDetails(inv)) return;
+    if (e.target.closest('button, a, input, label, textarea, select')) return;
+    setExpandedInvoiceId((prev) => (prev === inv.id ? null : inv.id));
   }
 
   function toggleExpense(id) {
@@ -153,6 +228,7 @@ export default function Invoices() {
 
   const selectedClient = clients.find(c => String(c.id) === String(form.clientId));
   const totalPending = invoices.filter(i => i.status === 'PENDING').reduce((s, i) => s + Number(i.total), 0);
+  const totalPartial = invoices.filter(i => i.status === 'PARTIAL').reduce((s, i) => s + Number(i.total), 0);
   const totalPaid = invoices.filter(i => i.status === 'PAID').reduce((s, i) => s + Number(i.total), 0);
 
   return (
@@ -175,7 +251,7 @@ export default function Invoices() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
         <div className="stat-card">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Invoices</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{invoices.length}</p>
@@ -183,6 +259,10 @@ export default function Invoices() {
         <div className="stat-card border-amber-100">
           <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Pending</p>
           <p className="text-2xl font-bold text-amber-700 mt-1">${totalPending.toFixed(2)}</p>
+        </div>
+        <div className="stat-card border-violet-100">
+          <p className="text-xs font-semibold text-violet-600 uppercase tracking-wider">Partial</p>
+          <p className="text-2xl font-bold text-violet-700 mt-1">${totalPartial.toFixed(2)}</p>
         </div>
         <div className="stat-card border-emerald-100">
           <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Collected</p>
@@ -211,6 +291,7 @@ export default function Invoices() {
               <select className="premium-select" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
                 <option value="">All Status</option>
                 <option value="PENDING">Pending</option>
+                <option value="PARTIAL">Partial Paid</option>
                 <option value="PAID">Paid</option>
               </select>
             </div>
@@ -247,26 +328,27 @@ export default function Invoices() {
           </div>
         </div>
         
-        <div className="overflow-x-auto">
-          <table className="premium-table">
+        <div className="overflow-x-hidden px-2">
+          <table className="premium-table table-fixed w-full">
             <thead>
               <tr>
-                <th>Invoice #</th>
-                <th>Client</th>
-                <th>Type</th>
-                <th>Period</th>
-                <th>Payment Received</th>
-                <th className="text-right">Hours</th>
-                <th className="text-right">Total</th>
-                <th>Status</th>
-                <th className="text-right">Actions</th>
+                <th className="whitespace-nowrap w-[70px]">Invoice #</th>
+                <th className="text-center whitespace-nowrap w-[190px]">Client</th>
+                <th className="text-center whitespace-nowrap w-[90px]">Type</th>
+                <th className="text-center whitespace-nowrap w-[140px]">Period</th>
+                <th className="text-center whitespace-nowrap w-[95px]">Paid On</th>
+                <th className="text-center whitespace-nowrap w-[110px]">Paid Amount</th>
+                <th className="text-center whitespace-nowrap w-[70px]">Hours</th>
+                <th className="text-center whitespace-nowrap w-[90px]">Total</th>
+                <th className="text-center whitespace-nowrap w-[105px]">Status</th>
+                <th className="text-center whitespace-nowrap w-[150px]">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="py-8 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan={10} className="py-8 text-center text-slate-400">Loading...</td></tr>
               ) : invoices.length === 0 ? (
-                <tr><td colSpan={9}>
+                <tr><td colSpan={10}>
                   <div className="empty-state py-12">
                     <FileText className="w-10 h-10 mb-2 text-slate-300" />
                     <p className="text-sm font-medium text-slate-600">No invoices yet</p>
@@ -275,54 +357,111 @@ export default function Invoices() {
                 </td></tr>
               ) : (
                 invoices.map(inv => (
-                  <tr key={inv.id}>
-                    <td className="font-bold text-slate-900">#{inv.invoiceNum}</td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="font-medium">{inv.client?.name}</span>
+                  <Fragment key={inv.id}>
+                  <tr
+                    onClick={(e) => onInvoiceRowClick(e, inv)}
+                    className={canExpandPaymentDetails(inv) ? 'cursor-pointer hover:bg-slate-50' : ''}
+                    title={canExpandPaymentDetails(inv) ? 'Click to view payment details' : undefined}
+                  >
+                    <td className="font-bold text-slate-900 whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5">
+                        <span>#{inv.invoiceNum}</span>
+                        {canExpandPaymentDetails(inv) && (
+                          expandedInvoiceId === inv.id
+                            ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                            : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                        )}
                       </div>
                     </td>
-                    <td>
-                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${Number(inv.totalHours) === 0 && Number(inv.rate) === 0 ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                    <td className="whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                        <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="font-medium whitespace-nowrap truncate max-w-[145px]" title={inv.client?.name}>{inv.client?.name}</span>
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap text-center">
+                      <span className={`inline-flex text-[11px] px-2 py-0.5 rounded-full font-semibold ${Number(inv.totalHours) === 0 && Number(inv.rate) === 0 ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'}`}>
                         {Number(inv.totalHours) === 0 && Number(inv.rate) === 0 ? 'Expense' : 'Timesheet'}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center gap-1.5 text-xs">
+                    <td className="whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1 text-xs whitespace-nowrap">
                         <Calendar className="w-3 h-3 text-slate-400" />
-                        <span className="text-slate-600">{inv.periodStart?.slice(0,10)}</span>
+                        <span className="text-slate-600">{inv.periodStart?.slice(5,10)}</span>
                         <ArrowRight className="w-3 h-3 text-slate-300" />
-                        <span className="text-slate-600">{inv.periodEnd?.slice(0,10)}</span>
+                        <span className="text-slate-600">{inv.periodEnd?.slice(5,10)}</span>
                       </div>
                     </td>
-                    <td className="text-slate-600">{formatDateOnly(inv.paidDate)}</td>
-                    <td className="text-right font-medium">{Number(inv.totalHours).toFixed(2)}</td>
-                    <td className="text-right font-bold text-slate-900">${Number(inv.total).toFixed(2)}</td>
-                    <td>
-                      <span className={inv.status === 'PAID' ? 'status-paid' : 'status-pending'}>
-                        {inv.status === 'PAID' ? 'Paid' : 'Pending'}
+                    <td className="text-slate-600 whitespace-nowrap text-center">{formatDateOnly(inv.paidDate)}</td>
+                    <td className="text-center font-medium text-slate-700">{inv.amountPaid != null ? `$${Number(inv.amountPaid).toFixed(2)}` : '—'}</td>
+                    <td className="text-center font-medium">{Number(inv.totalHours).toFixed(2)}</td>
+                    <td className="text-center font-bold text-slate-900">${Number(inv.total).toFixed(2)}</td>
+                    <td className="whitespace-nowrap text-center">
+                      <span className={`inline-flex ${inv.status === 'PAID' ? 'status-paid' : (inv.status === 'PARTIAL' ? 'status-partial' : 'status-pending')}`}>
+                        {inv.status === 'PAID' ? 'Paid' : (inv.status === 'PARTIAL' ? 'Partial Paid' : 'Pending')}
                       </span>
                     </td>
-                    <td>
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openPdf(inv.id)} className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors" title="View">
+                    <td className="pr-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); openPdf(inv.id); }} className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors" title="View">
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button onClick={() => downloadPdf(inv.id)} className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Download">
+                        <button onClick={(e) => { e.stopPropagation(); downloadPdf(inv.id); }} className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Download">
                           <Download className="w-4 h-4" />
                         </button>
+                        {inv.payStatementPath && (
+                          <>
+                            <button onClick={(e) => { e.stopPropagation(); openPayStatement(inv.id); }} className="p-1.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors" title="View Pay Statement">
+                              <FileText className="w-4 h-4" />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); downloadPayStatement(inv.id); }} className="p-1.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors" title="Download Pay Statement">
+                              <Download className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                         {inv.status !== 'PAID' && (
-                          <button onClick={() => markPaid(inv.id)} className="p-1.5 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors" title="Mark Paid">
+                          <button onClick={(e) => { e.stopPropagation(); markPaid(inv.id); }} className="p-1.5 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors" title="Record Payment">
                             <CheckCircle className="w-4 h-4" />
                           </button>
                         )}
-                        <button onClick={() => remove(inv.id)} className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors" title="Delete">
+                        <button onClick={(e) => { e.stopPropagation(); remove(inv.id); }} className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
                   </tr>
+                  {expandedInvoiceId === inv.id && canExpandPaymentDetails(inv) && (
+                    <tr>
+                      <td colSpan={10} className="bg-slate-50/80 px-4 py-3">
+                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Payment Notes</p>
+                              <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap break-words">{String(inv.paidNotes || '').trim() || 'No notes added.'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Pay Statement</p>
+                              {inv.payStatementPath ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openPayStatement(inv.id);
+                                  }}
+                                  className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:text-violet-800"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  Pay Statement
+                                </button>
+                              ) : (
+                                <p className="mt-1 text-sm text-slate-500">No pay statement uploaded.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))
               )}
             </tbody>
@@ -330,25 +469,102 @@ export default function Invoices() {
         </div>
       </div>
 
-      {pdfUrl && (
-        <div className="modal-overlay" onClick={() => setPdfUrl(null)}>
+      {paymentModalOpen && paymentInvoice && (
+        <div className="modal-overlay" onClick={() => setPaymentModalOpen(false)}>
+          <div className="modal-content max-w-2xl" onClick={e => e.stopPropagation()}>
+            <form onSubmit={submitPayment} className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Record Payment for Invoice #{paymentInvoice.invoiceNum}</h3>
+                  <p className="text-xs text-slate-500 mt-1">Invoice total: ${Number(paymentInvoice.total || 0).toFixed(2)}</p>
+                </div>
+                <button type="button" onClick={() => setPaymentModalOpen(false)} className="premium-btn-secondary !py-1.5 !px-3 text-xs">
+                  <X className="w-3.5 h-3.5" /> Close
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Amount Paid</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    className="premium-input"
+                    value={paymentForm.amountPaid}
+                    onChange={e => setPaymentForm((prev) => ({ ...prev, amountPaid: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Resulting Status</label>
+                  <div className="premium-input h-[42px] flex items-center">
+                    {Number(paymentForm.amountPaid || 0) + 0.00001 < Number(paymentInvoice.total || 0) ? 'Partial Paid' : 'Paid'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payment Notes</label>
+                <textarea
+                  className="premium-input min-h-[96px]"
+                  placeholder="Optional notes for this payment..."
+                  value={paymentForm.notes}
+                  onChange={e => setPaymentForm((prev) => ({ ...prev, notes: e.target.value }))}
+                />
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Pay Statement (required)</label>
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  className="premium-input"
+                  onChange={e => setPaymentForm((prev) => ({ ...prev, payStatement: e.target.files?.[0] || null }))}
+                />
+                {paymentInvoice.payStatementPath && (
+                  <label className="inline-flex items-center gap-2 mt-2 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4"
+                      checked={paymentForm.keepExistingPayStatement}
+                      onChange={e => setPaymentForm((prev) => ({ ...prev, keepExistingPayStatement: e.target.checked }))}
+                    />
+                    Keep existing pay statement if no new file is selected
+                  </label>
+                )}
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" onClick={() => setPaymentModalOpen(false)} className="premium-btn-secondary">Cancel</button>
+                <button disabled={savingPayment} className="premium-btn-primary">
+                  {savingPayment ? 'Saving...' : 'Save Payment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {previewFile && (
+        <div className="modal-overlay" onClick={() => setPreviewFile(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-indigo-600" />
-                <span className="font-bold text-slate-900">Invoice Preview</span>
+                <span className="font-bold text-slate-900">{previewFile.title}</span>
               </div>
               <div className="flex items-center gap-2">
-                <a href={`${pdfUrl}?download=1`} className="premium-btn-secondary text-xs py-2 px-3">
+                <a href={previewFile.downloadUrl} className="premium-btn-secondary text-xs py-2 px-3">
                   <Download className="w-3.5 h-3.5" /> Download
                 </a>
-                <button onClick={() => setPdfUrl(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <button onClick={() => setPreviewFile(null)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
                   <span className="text-sm font-medium text-slate-500">Close</span>
                 </button>
               </div>
             </div>
             <div className="flex-1 overflow-auto p-2 bg-slate-100">
-              <iframe src={pdfUrl} title="Invoice" className="w-full h-[70vh] rounded-lg shadow-sm bg-white" />
+              <iframe src={previewFile.url} title={previewFile.title} className="w-full h-[70vh] rounded-lg shadow-sm bg-white" />
             </div>
           </div>
         </div>

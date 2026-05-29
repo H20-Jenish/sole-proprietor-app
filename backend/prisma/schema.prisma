@@ -86,6 +86,9 @@ model Invoice {
   total        Float
   status       InvoiceStatus @default(PENDING)
   paidDate     DateTime?     @db.Date
+  amountPaid   Float?
+  paidNotes    String?
+  payStatementPath String?
   pdfPath      String?
   invoiceNum   Int
   createdDate  DateTime      @default(now())
@@ -178,5 +181,6 @@ enum PayRateType {
 
 enum InvoiceStatus {
   PENDING
+  PARTIAL
   PAID
 }

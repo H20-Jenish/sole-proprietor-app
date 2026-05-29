@@ -2,10 +2,11 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Users, Receipt, Clock, FileText, LogOut, Menu, X,
-  ChevronRight, Briefcase, Handshake, Settings, BellRing, Route
+  ChevronRight, Briefcase, Handshake, Settings, BellRing, Route, Activity
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../api.js';
+import { clearReauthToken } from '../api.js';
 
 function formatDateOnly(value) {
   if (!value) return '';
@@ -27,6 +28,7 @@ const links = [
   { to: '/timesheets', label: 'Timesheets', icon: Clock },
   { to: '/resources', label: 'Resources', icon: Briefcase },
   { to: '/invoices', label: 'Invoices', icon: FileText },
+  { to: '/reports', label: 'Reports', icon: Activity },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -51,6 +53,12 @@ export default function Layout() {
   useEffect(() => {
     setOpen(false);
     setNotificationsOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!location.pathname.startsWith('/settings')) {
+      clearReauthToken();
+    }
   }, [location.pathname]);
 
   useEffect(() => {

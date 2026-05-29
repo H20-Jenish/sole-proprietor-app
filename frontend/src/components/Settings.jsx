@@ -39,11 +39,9 @@ export default function Settings() {
 
   async function load() {
     setLoading(true);
+    setErr('');
     try {
-      const [r, b] = await Promise.all([
-        api.get('/settings'),
-        api.get('/settings/backup'),
-      ]);
+      const r = await api.get('/settings');
       setForm(prev => ({
         ...prev,
         name: r.data.name || '',
@@ -52,6 +50,8 @@ export default function Settings() {
         businessName: r.data.businessName || '',
         email: r.data.email || '',
       }));
+
+      const b = await api.get('/settings/backup');
       setBackup({
         intervalMinutes: b.data.intervalMinutes || 360,
         autoEnabled: b.data.autoEnabled !== false,
@@ -60,26 +60,31 @@ export default function Settings() {
         maxIntervalMinutes: b.data.maxIntervalMinutes || 480,
         snapshots: Array.isArray(b.data.snapshots) ? b.data.snapshots : [],
       });
+    } catch (error) {
+      setErr(error?.response?.data?.error || 'Unable to load settings. Password confirmation is required.');
     } finally {
       setLoading(false);
     }
   }
 
   async function reloadBackup() {
-    const b = await api.get('/settings/backup');
-    setBackup({
-      intervalMinutes: b.data.intervalMinutes || 360,
-      autoEnabled: b.data.autoEnabled !== false,
-      lastSnapshotAt: b.data.lastSnapshotAt || null,
-      minIntervalMinutes: b.data.minIntervalMinutes || 120,
-      maxIntervalMinutes: b.data.maxIntervalMinutes || 480,
-      snapshots: Array.isArray(b.data.snapshots) ? b.data.snapshots : [],
-    });
+    try {
+      const b = await api.get('/settings/backup');
+      setBackup({
+        intervalMinutes: b.data.intervalMinutes || 360,
+        autoEnabled: b.data.autoEnabled !== false,
+        lastSnapshotAt: b.data.lastSnapshotAt || null,
+        minIntervalMinutes: b.data.minIntervalMinutes || 120,
+        maxIntervalMinutes: b.data.maxIntervalMinutes || 480,
+        snapshots: Array.isArray(b.data.snapshots) ? b.data.snapshots : [],
+      });
+    } catch (error) {
+      setErr(error?.response?.data?.error || 'Unable to refresh backups. Password confirmation is required.');
+    }
   }
 
   async function deleteSnapshot(fileName) {
     if (!fileName) return;
-    if (!confirm(`Delete snapshot ${fileName}?`)) return;
 
     setErr('');
     setOk('');

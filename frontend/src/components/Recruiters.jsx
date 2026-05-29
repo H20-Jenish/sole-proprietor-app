@@ -44,7 +44,6 @@ export default function Recruiters() {
   }
 
   async function remove(id) {
-    if (!confirm('Delete this recruiter? Clients linked to this recruiter will be unlinked.')) return;
     await api.delete(`/recruiters/${id}`);
     load();
   }
@@ -60,7 +59,6 @@ export default function Recruiters() {
   }
 
   async function removeDocument(recruiterId, docId) {
-    if (!confirm('Delete this document?')) return;
     await api.delete(`/recruiters/${recruiterId}/documents/${docId}`);
     load();
   }

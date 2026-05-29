@@ -163,10 +163,10 @@ docker-compose down -v
 
 ## Updating Business Settings
 
-After login, navigate to **Dashboard** to view your business name and HST number. To update:
+After login, navigate to **Settings** to update business profile values (name, email, business name, phone, HST, password).
 
-1. Use the Settings API or directly update the database user record.
-2. Restart the backend container if needed.
+- Settings access is protected by a password re-authentication prompt.
+- When you leave Settings and come back, password confirmation is required again.
 
 ---
 
@@ -186,6 +186,7 @@ After login, navigate to **Dashboard** to view your business name and HST number
 - Date display is timezone-safe for date-only expense records (prevents day-shift/off-by-one display)
 - Expense rows show invoice state highlighting:
   - Orange strip = invoiced but pending payment
+  - Violet strip = partially paid invoice
   - Green strip = invoiced and paid
 
 ### Timesheets
@@ -195,6 +196,7 @@ After login, navigate to **Dashboard** to view your business name and HST number
 - Running totals in table footer
 - Timesheet rows show invoice state highlighting:
   - Orange strip = invoiced but pending payment
+  - Violet strip = partially paid invoice
   - Green strip = invoiced and paid
 
 ### Invoices
@@ -214,8 +216,29 @@ After login, navigate to **Dashboard** to view your business name and HST number
   - Enables strip-color status for older records, not just newly created invoices
 - Auto-incrementing invoice numbers
 - Styled PDF generation with embedded timesheet summary table
-- Color-coded status: **Orange** (Pending) / **Green** (Paid)
-- Mark as paid, regenerate, download
+- Color-coded status: **Orange** (Pending) / **Violet** (Partial Paid) / **Green** (Paid)
+- Payment workflow:
+  - Record amount paid (supports partial payments)
+  - Add payment notes
+  - Upload required pay statement before marking paid/partial
+  - View/download pay statement
+- Paid/partial invoices support expandable payment details row in table:
+  - Payment notes
+  - Pay statement quick-view action
+- Invoices table refined for compact no-wrap display without horizontal scrolling
+
+### Reports
+- Dedicated **Reports** page with real-time analytics from existing app data
+- Filter by client and date range
+- KPI cards:
+  - Invoiced, collected, outstanding
+  - Expenses, hours logged, mileage
+- Charts:
+  - Monthly invoiced vs collected (latest 6 months)
+  - Invoice status mix (pending/partial/paid)
+  - Top clients by invoiced amount
+- Client performance table:
+  - Invoiced, collected, outstanding, hours, expenses
 
 ### UX Improvements
 - Data entry moved into modals for:
@@ -238,6 +261,10 @@ After login, navigate to **Dashboard** to view your business name and HST number
 - **Env File:** Never commit `.env` to version control.
 - **File Access:** Upload routes validate paths to prevent directory traversal.
 - **Auth:** All API routes (except `/api/auth/login`) require valid JWT via HttpOnly cookie.
+- **Re-Authentication:**
+  - Any delete action requires password confirmation.
+  - Settings endpoints require password re-authentication.
+  - Re-auth prompts are shown using an in-app security modal (not browser prompt/confirm popups).
 
 ---
 

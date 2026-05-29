@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import api from '../api.js';
+import api, { clearReauthToken } from '../api.js';
 
 const AuthContext = createContext(null);
 
@@ -21,12 +21,14 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const r = await api.post('/auth/login', { email, password });
+    clearReauthToken();
     setUser(r.data.user);
     return r.data.user;
   };
 
   const signup = async (payload) => {
     const r = await api.post('/auth/signup', payload);
+    clearReauthToken();
     setUser(r.data.user);
     return r.data.user;
   };
@@ -37,6 +39,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     await api.post('/auth/logout');
+    clearReauthToken();
     setUser(null);
   };
 

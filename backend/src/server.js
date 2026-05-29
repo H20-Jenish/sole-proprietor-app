@@ -4,6 +4,7 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { initBackupScheduler } = require('./services/backupService');
 const { backfillInvoiceItems } = require('./services/invoiceItemBackfill');
+const { requireReauthForDelete, requireReauthForSettings } = require('./middleware/reauth');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -15,12 +16,14 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
+app.use(requireReauthForDelete);
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/recruiters', require('./routes/recruiters'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/timesheets', require('./routes/timesheets'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/files', require('./routes/files'));
+app.use('/api/settings', requireReauthForSettings);
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/mileage', require('./routes/mileage'));
 app.use('/api/car-valuations', require('./routes/carValuations'));

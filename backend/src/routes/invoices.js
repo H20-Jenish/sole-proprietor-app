@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware } = require('../middleware/auth');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
@@ -8,6 +9,19 @@ const { parseDateOnly, formatDateOnly } = require('../utils/dateOnly');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+const payStatementStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join('/app/uploads/invoices/paystatements');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '') || '.pdf';
+    cb(null, `invoice-${String(req.params.id)}-${Date.now()}${ext}`);
+  },
+});
+const uploadPayStatement = multer({ storage: payStatementStorage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 function currentDateOnly() {
   const now = new Date();
@@ -24,6 +38,13 @@ function computeHours(start, end, deductionMinutes = 0) {
   if (diff < 0) diff += 24 * 60;
   const netMinutes = Math.max(0, diff - Math.max(0, Number(deductionMinutes) || 0));
   return parseFloat((netMinutes / 60).toFixed(2));
+}
+
+function paymentStatusFor(invoiceTotal, amountPaid) {
+  const total = Number(invoiceTotal || 0);
+  const paid = Number(amountPaid || 0);
+  if (!Number.isFinite(paid) || paid <= 0) return 'PENDING';
+  return paid + 0.00001 < total ? 'PARTIAL' : 'PAID';
 }
 
 router.get('/', authMiddleware, async (req, res) => {
@@ -231,15 +252,65 @@ router.post('/', authMiddleware, async (req, res) => {
 
 router.put('/:id/status', authMiddleware, async (req, res) => {
   const { status } = req.body;
-  const nextStatus = status === 'PAID' ? 'PAID' : 'PENDING';
+  if (status === 'PAID' || status === 'PARTIAL') {
+    return res.status(400).json({ error: 'Use /payment endpoint to record paid or partial-paid invoices' });
+  }
+
   const updated = await prisma.invoice.update({
     where: { id: Number(req.params.id) },
     data: {
-      status: nextStatus,
-      paidDate: nextStatus === 'PAID' ? currentDateOnly() : null,
+      status: 'PENDING',
+      paidDate: null,
+      amountPaid: null,
+      paidNotes: null,
+      payStatementPath: null,
     },
     include: { client: { select: { id: true, name: true, payRateType: true } } },
   });
+  res.json(updated);
+});
+
+router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStatement'), async (req, res) => {
+  const invoiceId = Number(req.params.id);
+  const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  const rawPaid = Number(req.body?.amountPaid);
+  if (!Number.isFinite(rawPaid) || rawPaid <= 0) {
+    return res.status(400).json({ error: 'Amount paid must be greater than 0' });
+  }
+
+  const amountPaid = parseFloat(rawPaid.toFixed(2));
+  const paymentStatus = paymentStatusFor(invoice.total, amountPaid);
+
+  const notes = String(req.body?.notes || '').trim();
+  const keepExistingPayStatement = String(req.body?.keepExistingPayStatement || 'false') === 'true';
+  let payStatementPath = invoice.payStatementPath;
+
+  if (!req.file && !keepExistingPayStatement && !invoice.payStatementPath) {
+    return res.status(400).json({ error: 'Pay statement is required before marking invoice as paid/partial paid' });
+  }
+
+  if (req.file) {
+    if (invoice.payStatementPath) {
+      const existingFile = path.join('/app/uploads', invoice.payStatementPath);
+      if (fs.existsSync(existingFile)) fs.unlinkSync(existingFile);
+    }
+    payStatementPath = path.join('invoices', 'paystatements', req.file.filename);
+  }
+
+  const updated = await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: {
+      status: paymentStatus,
+      paidDate: currentDateOnly(),
+      amountPaid,
+      paidNotes: notes || null,
+      payStatementPath,
+    },
+    include: { client: { select: { id: true, name: true, payRateType: true } } },
+  });
+
   res.json(updated);
 });
 
@@ -255,10 +326,35 @@ router.get('/:id/pdf', authMiddleware, async (req, res) => {
   res.sendFile(filePath);
 });
 
+router.get('/:id/paystatement', authMiddleware, async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({ where: { id: Number(req.params.id) } });
+  if (!invoice?.payStatementPath) return res.status(404).json({ error: 'Pay statement not found' });
+
+  const filePath = path.join('/app/uploads', invoice.payStatementPath);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing' });
+
+  const download = req.query.download === '1';
+  const filename = path.basename(filePath);
+  const ext = path.extname(filename).toLowerCase();
+  const mime = ext === '.pdf'
+    ? 'application/pdf'
+    : (ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.gif' || ext === '.webp')
+      ? `image/${ext.replace('.', '') === 'jpg' ? 'jpeg' : ext.replace('.', '')}`
+      : 'application/octet-stream';
+
+  res.set('Content-Type', mime);
+  res.set('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);
+  res.sendFile(filePath);
+});
+
 router.delete('/:id', authMiddleware, async (req, res) => {
   const invoice = await prisma.invoice.findUnique({ where: { id: Number(req.params.id) } });
   if (invoice?.pdfPath) {
     const fp = path.join('/app/uploads', invoice.pdfPath);
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  }
+  if (invoice?.payStatementPath) {
+    const fp = path.join('/app/uploads', invoice.payStatementPath);
     if (fs.existsSync(fp)) fs.unlinkSync(fp);
   }
   await prisma.invoice.delete({ where: { id: Number(req.params.id) } });

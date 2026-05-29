@@ -118,8 +118,6 @@ export default function Resources() {
   }
 
   async function removeEntry(entry) {
-    if (!confirm('Delete this mileage entry?')) return;
-
     setError('');
     try {
       await api.delete(`/mileage/${entry.id}`);
@@ -196,8 +194,6 @@ export default function Resources() {
   }
 
   async function removeCarValuation(valuation) {
-    if (!confirm('Delete this car valuation card?')) return;
-
     setError('');
     try {
       await api.delete(`/car-valuations/${valuation.id}`);
