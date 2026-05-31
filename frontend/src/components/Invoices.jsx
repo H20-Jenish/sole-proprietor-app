@@ -5,6 +5,27 @@ import {
   Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 
+function toYmd(value) {
+  return String(value || '').slice(0, 10);
+}
+
+function addDaysYmd(ymd, days) {
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function formatShortDate(ymd) {
+  if (!ymd) return '';
+  const [year, month, day] = ymd.split('-').map(Number);
+  if (!year || !month || !day) return ymd;
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 function formatDateOnly(value) {
   if (!value) return '—';
   const iso = String(value).slice(0, 10);
@@ -37,6 +58,10 @@ export default function Invoices() {
   const [expenseOptions, setExpenseOptions] = useState([]);
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
+  const [loadingTimesheetDates, setLoadingTimesheetDates] = useState(false);
+  const [workedDates, setWorkedDates] = useState([]);
+  const [uninvoicedWorkedDates, setUninvoicedWorkedDates] = useState([]);
+  const [biWeeklySuggestion, setBiWeeklySuggestion] = useState({ start: '', end: '' });
   const [previewFile, setPreviewFile] = useState(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
@@ -116,6 +141,54 @@ export default function Invoices() {
       setSelectedExpenseIds(rows.filter((x) => !x.invoiceId).map((x) => x.id));
     } finally {
       setLoadingExpenses(false);
+    }
+  }
+
+  async function loadTimesheetDateInsights(nextForm = form) {
+    if (nextForm.source !== 'TIMESHEET' || !nextForm.clientId) {
+      setWorkedDates([]);
+      setUninvoicedWorkedDates([]);
+      setBiWeeklySuggestion({ start: '', end: '' });
+      return;
+    }
+
+    setLoadingTimesheetDates(true);
+    try {
+      const r = await api.get('/timesheets', { params: { clientId: nextForm.clientId } });
+      const rows = Array.isArray(r.data) ? r.data : [];
+
+      const workedSet = new Set();
+      const uninvoicedSet = new Set();
+      for (const row of rows) {
+        const ymd = toYmd(row.date);
+        if (!ymd) continue;
+        workedSet.add(ymd);
+        if (!row.invoiceId) uninvoicedSet.add(ymd);
+      }
+
+      const worked = Array.from(workedSet).sort((a, b) => a.localeCompare(b));
+      const uninvoiced = Array.from(uninvoicedSet).sort((a, b) => a.localeCompare(b));
+      setWorkedDates(worked);
+      setUninvoicedWorkedDates(uninvoiced);
+
+      if (uninvoiced.length) {
+        const start = uninvoiced[0];
+        const end = addDaysYmd(start, 13);
+        setBiWeeklySuggestion({ start, end });
+
+        // Auto-fill only when dates are empty so user edits are preserved.
+        if (!nextForm.periodStart && !nextForm.periodEnd) {
+          setForm((prev) => ({
+            ...prev,
+            periodStart: start,
+            periodEnd: end,
+          }));
+        }
+      } else {
+        setBiWeeklySuggestion({ start: '', end: '' });
+      }
+    } finally {
+      setLoadingTimesheetDates(false);
     }
   }
 
@@ -243,6 +316,9 @@ export default function Invoices() {
             setForm({ clientId: '', billRecruiter: false, periodStart: '', periodEnd: '', source: 'TIMESHEET' });
             setExpenseOptions([]);
             setSelectedExpenseIds([]);
+            setWorkedDates([]);
+            setUninvoicedWorkedDates([]);
+            setBiWeeklySuggestion({ start: '', end: '' });
             setEntryOpen(true);
           }}
           className="premium-btn-primary"
@@ -592,6 +668,7 @@ export default function Invoices() {
                     const next = { ...form, source: 'TIMESHEET' };
                     setForm(next);
                     loadExpenseOptions(next);
+                    loadTimesheetDateInsights(next);
                   }}
                   className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'TIMESHEET' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
                 >
@@ -603,6 +680,7 @@ export default function Invoices() {
                     const next = { ...form, source: 'EXPENSE' };
                     setForm(next);
                     loadExpenseOptions(next);
+                    loadTimesheetDateInsights(next);
                   }}
                   className={`premium-btn-secondary !py-1.5 !px-3 text-xs ${form.source === 'EXPENSE' ? '!bg-indigo-50 !text-indigo-700 !border-indigo-200' : ''}`}
                 >
@@ -620,6 +698,7 @@ export default function Invoices() {
                       const next = { ...form, clientId: e.target.value, billRecruiter: false };
                       setForm(next);
                       loadExpenseOptions(next);
+                      loadTimesheetDateInsights(next);
                     }}
                   >
                     <option value="">Select Client</option>
@@ -666,6 +745,51 @@ export default function Invoices() {
                   )}
                 </button>
               </div>
+
+              {form.source === 'TIMESHEET' && form.clientId && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">Worked Date Insights</p>
+                      <p className="text-[11px] text-slate-500">
+                        Worked days: {workedDates.length} • Uninvoiced worked days: {uninvoicedWorkedDates.length}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!biWeeklySuggestion.start}
+                      onClick={() => setForm((prev) => ({ ...prev, periodStart: biWeeklySuggestion.start, periodEnd: biWeeklySuggestion.end }))}
+                      className="premium-btn-secondary !py-1.5 !px-3 text-xs"
+                    >
+                      Use Next Bi-Weekly Range
+                    </button>
+                  </div>
+
+                  {loadingTimesheetDates ? (
+                    <p className="text-xs text-slate-500 mt-2">Loading worked days...</p>
+                  ) : uninvoicedWorkedDates.length === 0 ? (
+                    <p className="text-xs text-slate-500 mt-2">No uninvoiced worked days found for this client.</p>
+                  ) : (
+                    <>
+                      <div className="mt-2 text-[11px] text-slate-600">
+                        Suggested period: <span className="font-semibold text-slate-800">{formatShortDate(biWeeklySuggestion.start)}</span> <ArrowRight className="inline w-3 h-3 text-slate-400" /> <span className="font-semibold text-slate-800">{formatShortDate(biWeeklySuggestion.end)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 max-h-20 overflow-auto pr-1">
+                        {uninvoicedWorkedDates.slice(0, 24).map((d) => (
+                          <span key={d} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 ring-1 ring-amber-600/20">
+                            {formatShortDate(d)}
+                          </span>
+                        ))}
+                        {uninvoicedWorkedDates.length > 24 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+                            +{uninvoicedWorkedDates.length - 24} more
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {form.source === 'EXPENSE' && (
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">

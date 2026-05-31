@@ -201,6 +201,11 @@ After login, navigate to **Settings** to update business profile values (name, e
 
 ### Invoices
 - Generate invoices from timesheet periods
+- Timesheet date intelligence in invoice modal:
+  - Shows worked-day count and uninvoiced worked-day count for selected client
+  - Displays uninvoiced worked dates as visual chips
+  - Auto-suggests next bi-weekly range from earliest uninvoiced worked date
+  - Provides one-click action to apply suggested bi-weekly range
 - Auto-calculate hours, rate, subtotal, HST 13%, total
 - Toggle billing to client or recruiter (for middle-party setups)
 - Generate expense reimbursement invoices by selecting specific expenses
