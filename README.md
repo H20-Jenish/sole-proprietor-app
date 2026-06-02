@@ -206,6 +206,7 @@ After login, navigate to **Settings** to update business profile values (name, e
   - Displays uninvoiced worked dates as visual chips
   - Auto-suggests next bi-weekly range from earliest uninvoiced worked date
   - Provides one-click action to apply suggested bi-weekly range
+  - Helps identify when a period is still missing an invoice before it is generated
 - Auto-calculate hours, rate, subtotal, HST 13%, total
 - Toggle billing to client or recruiter (for middle-party setups)
 - Generate expense reimbursement invoices by selecting specific expenses
@@ -244,6 +245,11 @@ After login, navigate to **Settings** to update business profile values (name, e
   - Top clients by invoiced amount
 - Client performance table:
   - Invoiced, collected, outstanding, hours, expenses
+
+### Billing Reminders
+- Invoice generation now highlights worked days that have not yet been invoiced.
+- The invoice modal suggests the next bi-weekly period from the earliest uninvoiced worked date.
+- This helps you spot which periods still need invoices before creating them.
 
 ### UX Improvements
 - Data entry moved into modals for:
