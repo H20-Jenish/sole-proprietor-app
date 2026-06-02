@@ -59,7 +59,10 @@ router.get('/', authMiddleware, async (req, res) => {
   }
   const invoices = await prisma.invoice.findMany({
     where,
-    include: { client: { select: { id: true, name: true, payRateType: true } } },
+    include: {
+      client: { select: { id: true, name: true, payRateType: true } },
+      payments: { orderBy: { createdAt: 'asc' } },
+    },
     orderBy: { createdDate: 'desc' },
   });
   res.json(invoices);
@@ -256,16 +259,23 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'Use /payment endpoint to record paid or partial-paid invoices' });
   }
 
-  const updated = await prisma.invoice.update({
-    where: { id: Number(req.params.id) },
-    data: {
-      status: 'PENDING',
-      paidDate: null,
-      amountPaid: null,
-      paidNotes: null,
-      payStatementPath: null,
-    },
-    include: { client: { select: { id: true, name: true, payRateType: true } } },
+  const invoiceId = Number(req.params.id);
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.invoicePayment.deleteMany({ where: { invoiceId } });
+    return tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'PENDING',
+        paidDate: null,
+        amountPaid: null,
+        paidNotes: null,
+        payStatementPath: null,
+      },
+      include: {
+        client: { select: { id: true, name: true, payRateType: true } },
+        payments: { orderBy: { createdAt: 'asc' } },
+      },
+    });
   });
   res.json(updated);
 });
@@ -275,13 +285,31 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  const rawPaid = Number(req.body?.amountPaid);
-  if (!Number.isFinite(rawPaid) || rawPaid <= 0) {
-    return res.status(400).json({ error: 'Amount paid must be greater than 0' });
+  const rawPaymentAmount = Number(req.body?.amountPaid);
+  if (!Number.isFinite(rawPaymentAmount) || rawPaymentAmount <= 0) {
+    return res.status(400).json({ error: 'Payment amount must be greater than 0' });
   }
 
-  const amountPaid = parseFloat(rawPaid.toFixed(2));
-  const paymentStatus = paymentStatusFor(invoice.total, amountPaid);
+  const paymentAmount = parseFloat(rawPaymentAmount.toFixed(2));
+  const existingPaid = Number(invoice.amountPaid || 0);
+  const nextAmountPaid = parseFloat((existingPaid + paymentAmount).toFixed(2));
+  if (nextAmountPaid > Number(invoice.total || 0) + 0.00001) {
+    return res.status(400).json({ error: 'Payment exceeds outstanding invoice balance' });
+  }
+  const paymentStatus = paymentStatusFor(invoice.total, nextAmountPaid);
+
+  const paidDateRaw = String(req.body?.paidDate || '').trim();
+  let paidDate = currentDateOnly();
+  if (paidDateRaw) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDateRaw)) {
+      return res.status(400).json({ error: 'Payment date must be in YYYY-MM-DD format' });
+    }
+    const parsedPaidDate = parseDateOnly(paidDateRaw);
+    if (!parsedPaidDate || Number.isNaN(parsedPaidDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid payment date' });
+    }
+    paidDate = parsedPaidDate;
+  }
 
   const notes = String(req.body?.notes || '').trim();
   const keepExistingPayStatement = String(req.body?.keepExistingPayStatement || 'false') === 'true';
@@ -299,16 +327,32 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
     payStatementPath = path.join('invoices', 'paystatements', req.file.filename);
   }
 
-  const updated = await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      status: paymentStatus,
-      paidDate: currentDateOnly(),
-      amountPaid,
-      paidNotes: notes || null,
-      payStatementPath,
-    },
-    include: { client: { select: { id: true, name: true, payRateType: true } } },
+  // Keep the first paid date on the invoice record; every payment date is preserved in invoice.payments.
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.invoicePayment.create({
+      data: {
+        invoiceId,
+        amount: paymentAmount,
+        paidDate,
+        notes: notes || null,
+        payStatementPath: payStatementPath || null,
+      },
+    });
+
+    return tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: paymentStatus,
+        paidDate: invoice.paidDate || paidDate,
+        amountPaid: nextAmountPaid,
+        paidNotes: notes || invoice.paidNotes || null,
+        payStatementPath,
+      },
+      include: {
+        client: { select: { id: true, name: true, payRateType: true } },
+        payments: { orderBy: { createdAt: 'asc' } },
+      },
+    });
   });
 
   res.json(updated);

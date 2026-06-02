@@ -93,6 +93,18 @@ model Invoice {
   invoiceNum   Int
   createdDate  DateTime      @default(now())
   items        InvoiceItem[]
+  payments     InvoicePayment[]
+}
+
+model InvoicePayment {
+  id               Int      @id @default(autoincrement())
+  invoiceId        Int
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount           Float
+  paidDate         DateTime @db.Date
+  notes            String?
+  payStatementPath String?
+  createdAt        DateTime @default(now())
 }
 
 model InvoiceItem {

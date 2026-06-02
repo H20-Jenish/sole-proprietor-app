@@ -28,8 +28,8 @@ export default function Dashboard() {
       const expenses = e.data.reduce((s, x) => s + Number(x.amount), 0);
       const hours = t.data.reduce((s, x) => s + Number(x.totalHours), 0);
       const invoices = i.data.length;
-      const pendingTotal = i.data.filter(x => x.status === 'PENDING').reduce((s, x) => s + Number(x.total), 0);
-      const paidTotal = i.data.filter(x => x.status === 'PAID').reduce((s, x) => s + Number(x.total), 0);
+      const pendingTotal = i.data.reduce((s, x) => s + Math.max(0, Number(x.total || 0) - Number(x.amountPaid || 0)), 0);
+      const paidTotal = i.data.reduce((s, x) => s + Number(x.amountPaid || 0), 0);
       const totalMileage = m.data.reduce((s, x) => s + Number(x.mileage || 0), 0);
 
       const map = {};

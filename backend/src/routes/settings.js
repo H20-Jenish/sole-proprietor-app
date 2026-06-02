@@ -30,7 +30,13 @@ const upload = multer({
 router.get('/', authMiddleware, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
   if (!user) return res.status(404).json({ error: 'No user' });
-  res.json({ name: user.name, phone: user.phone, hstNumber: user.hstNumber, businessName: user.businessName, email: user.email });
+  res.json({
+    name: user.name,
+    phone: user.phone,
+    hstNumber: user.hstNumber,
+    businessName: user.businessName,
+    email: user.email,
+  });
 });
 
 router.put('/', authMiddleware, async (req, res) => {
@@ -61,7 +67,13 @@ router.put('/', authMiddleware, async (req, res) => {
       where: { id: req.userId },
       data: updateData,
     });
-    res.json({ name: updated.name, phone: updated.phone, hstNumber: updated.hstNumber, businessName: updated.businessName, email: updated.email });
+    res.json({
+      name: updated.name,
+      phone: updated.phone,
+      hstNumber: updated.hstNumber,
+      businessName: updated.businessName,
+      email: updated.email,
+    });
   } catch (error) {
     if (error?.code === 'P2002') return res.status(409).json({ error: 'Email is already in use' });
     throw error;

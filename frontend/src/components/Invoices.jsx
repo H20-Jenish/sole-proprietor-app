@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import api from '../api.js';
 import { 
   Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter,
-  Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp
+  Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp, Undo2, HandCoins
 } from 'lucide-react';
 
 function toYmd(value) {
@@ -38,6 +38,14 @@ function formatDateOnly(value) {
   });
 }
 
+function todayYmd() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function downloadPdf(id) {
   window.open(`/api/invoices/${id}/pdf?download=1`, '_blank', 'noopener,noreferrer');
 }
@@ -65,7 +73,8 @@ export default function Invoices() {
   const [previewFile, setPreviewFile] = useState(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({ amountPaid: '', notes: '', payStatement: null, keepExistingPayStatement: false });
+  const [paymentForm, setPaymentForm] = useState({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false });
+  const [downloadPickerInvoice, setDownloadPickerInvoice] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -195,10 +204,12 @@ export default function Invoices() {
   async function markPaid(id) {
     const inv = invoices.find((x) => x.id === id);
     if (!inv) return;
+    const remaining = Math.max(0, Number(inv.total || 0) - Number(inv.amountPaid || 0));
     setPaymentInvoice(inv);
     setPaymentForm({
-      amountPaid: Number(inv.amountPaid || inv.total).toFixed(2),
-      notes: inv.paidNotes || '',
+      amountPaid: remaining.toFixed(2),
+      paidDate: todayYmd(),
+      notes: '',
       payStatement: null,
       keepExistingPayStatement: !!inv.payStatementPath,
     });
@@ -223,6 +234,7 @@ export default function Invoices() {
     try {
       const fd = new FormData();
       fd.append('amountPaid', String(amountPaid));
+      fd.append('paidDate', String(paymentForm.paidDate || todayYmd()));
       fd.append('notes', paymentForm.notes || '');
       fd.append('keepExistingPayStatement', paymentForm.keepExistingPayStatement ? 'true' : 'false');
       if (paymentForm.payStatement) fd.append('payStatement', paymentForm.payStatement);
@@ -233,7 +245,7 @@ export default function Invoices() {
 
       setPaymentModalOpen(false);
       setPaymentInvoice(null);
-      setPaymentForm({ amountPaid: '', notes: '', payStatement: null, keepExistingPayStatement: false });
+      setPaymentForm({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false });
       load();
     } catch (err) {
       alert(err?.response?.data?.error || 'Failed to record payment');
@@ -244,6 +256,14 @@ export default function Invoices() {
 
   async function remove(id) {
     await api.delete(`/invoices/${id}`);
+    load();
+  }
+
+  async function undoInvoicePayment(id) {
+    const ok = window.confirm('Undo this invoice payment and set status back to Pending?');
+    if (!ok) return;
+    await api.put(`/invoices/${id}/status`, { status: 'PENDING' });
+    if (expandedInvoiceId === id) setExpandedInvoiceId(null);
     load();
   }
 
@@ -267,8 +287,22 @@ export default function Invoices() {
     window.open(`/api/invoices/${id}/paystatement?download=1`, '_blank', 'noopener,noreferrer');
   }
 
+  function openDownloadPicker(e, invoice) {
+    e.stopPropagation();
+    setDownloadPickerInvoice(invoice);
+  }
+
   function canExpandPaymentDetails(inv) {
-    return (inv.status === 'PAID' || inv.status === 'PARTIAL') && (!!inv.payStatementPath || !!String(inv.paidNotes || '').trim());
+    return (inv.status === 'PAID' || inv.status === 'PARTIAL') && (
+      !!inv.payStatementPath
+      || !!String(inv.paidNotes || '').trim()
+      || (Array.isArray(inv.payments) && inv.payments.length > 0)
+    );
+  }
+
+  function paymentHistory(inv) {
+    const rows = Array.isArray(inv.payments) ? inv.payments : [];
+    return [...rows].sort((a, b) => String(a.paidDate || '').localeCompare(String(b.paidDate || '')));
   }
 
   function onInvoiceRowClick(e, inv) {
@@ -300,9 +334,9 @@ export default function Invoices() {
   const selectedExpenseTotal = selectedExpenses.reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
   const selectedClient = clients.find(c => String(c.id) === String(form.clientId));
-  const totalPending = invoices.filter(i => i.status === 'PENDING').reduce((s, i) => s + Number(i.total), 0);
-  const totalPartial = invoices.filter(i => i.status === 'PARTIAL').reduce((s, i) => s + Number(i.total), 0);
-  const totalPaid = invoices.filter(i => i.status === 'PAID').reduce((s, i) => s + Number(i.total), 0);
+  const totalPending = invoices.reduce((s, i) => s + Math.max(0, Number(i.total || 0) - Number(i.amountPaid || 0)), 0);
+  const totalPartial = invoices.filter(i => i.status === 'PARTIAL').reduce((s, i) => s + Number(i.amountPaid || 0), 0);
+  const totalPaid = invoices.reduce((s, i) => s + Number(i.amountPaid || 0), 0);
 
   return (
     <div className="animate-fade-in">
@@ -482,21 +516,45 @@ export default function Invoices() {
                         <button onClick={(e) => { e.stopPropagation(); openPdf(inv.id); }} className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors" title="View">
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); downloadPdf(inv.id); }} className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Download">
-                          <Download className="w-4 h-4" />
-                        </button>
-                        {inv.payStatementPath && (
-                          <>
-                            <button onClick={(e) => { e.stopPropagation(); openPayStatement(inv.id); }} className="p-1.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors" title="View Pay Statement">
-                              <FileText className="w-4 h-4" />
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); downloadPayStatement(inv.id); }} className="p-1.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors" title="Download Pay Statement">
-                              <Download className="w-4 h-4" />
-                            </button>
-                          </>
+                        {(inv.status === 'PAID' || inv.status === 'PARTIAL') ? (
+                          <button onClick={(e) => openDownloadPicker(e, inv)} className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Download">
+                            <Download className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); downloadPdf(inv.id); }} className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-lg transition-colors" title="Download">
+                            <Download className="w-4 h-4" />
+                          </button>
                         )}
-                        {inv.status !== 'PAID' && (
-                          <button onClick={(e) => { e.stopPropagation(); markPaid(inv.id); }} className="p-1.5 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors" title="Record Payment">
+                        {inv.payStatementPath && (
+                          <button onClick={(e) => { e.stopPropagation(); openPayStatement(inv.id); }} className="p-1.5 hover:bg-violet-50 text-slate-400 hover:text-violet-600 rounded-lg transition-colors" title="View Pay Statement">
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
+                        {inv.status === 'PAID' ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); undoInvoicePayment(inv.id); }}
+                            className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Undo Invoice"
+                            aria-label="Undo Invoice"
+                          >
+                            <Undo2 className="w-4 h-4" />
+                          </button>
+                        ) : inv.status === 'PARTIAL' ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); markPaid(inv.id); }}
+                            className="p-1.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            title="Partial Payment"
+                            aria-label="Partial Payment"
+                          >
+                            <HandCoins className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); markPaid(inv.id); }}
+                            className="p-1.5 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 rounded-lg transition-colors"
+                            title="Record Payment"
+                            aria-label="Record Payment"
+                          >
                             <CheckCircle className="w-4 h-4" />
                           </button>
                         )}
@@ -533,6 +591,30 @@ export default function Invoices() {
                               )}
                             </div>
                           </div>
+
+                          {paymentHistory(inv).length > 0 && (
+                            <div className="mt-3">
+                              <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 mb-1.5">Payment History</p>
+                              <div className="rounded-lg border border-slate-200 overflow-hidden">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-slate-50">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 font-semibold text-slate-600">Date</th>
+                                      <th className="text-left px-3 py-2 font-semibold text-slate-600">Amount</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {paymentHistory(inv).map((p) => (
+                                      <tr key={p.id} className="border-t border-slate-100">
+                                        <td className="px-3 py-2 text-slate-700">{formatDateOnly(p.paidDate)}</td>
+                                        <td className="px-3 py-2 font-semibold text-slate-800">${Number(p.amount || 0).toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -561,7 +643,7 @@ export default function Invoices() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Amount Paid</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payment Amount</label>
                   <input
                     type="number"
                     step="0.01"
@@ -575,9 +657,24 @@ export default function Invoices() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Resulting Status</label>
                   <div className="premium-input h-[42px] flex items-center">
-                    {Number(paymentForm.amountPaid || 0) + 0.00001 < Number(paymentInvoice.total || 0) ? 'Partial Paid' : 'Paid'}
+                    {Number(paymentForm.amountPaid || 0) + Number(paymentInvoice.amountPaid || 0) + 0.00001 < Number(paymentInvoice.total || 0) ? 'Partial Paid' : 'Paid'}
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-2 text-[11px] text-slate-500">
+                Already received: ${Number(paymentInvoice.amountPaid || 0).toFixed(2)} • Remaining: ${Math.max(0, Number(paymentInvoice.total || 0) - Number(paymentInvoice.amountPaid || 0)).toFixed(2)}
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payment Date</label>
+                <input
+                  type="date"
+                  className="premium-input"
+                  value={paymentForm.paidDate}
+                  onChange={e => setPaymentForm((prev) => ({ ...prev, paidDate: e.target.value }))}
+                  required
+                />
               </div>
 
               <div className="mt-3">
@@ -618,6 +715,50 @@ export default function Invoices() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {downloadPickerInvoice && (
+        <div className="modal-overlay" onClick={() => setDownloadPickerInvoice(null)}>
+          <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">Download Invoice Files</h3>
+                  <p className="text-xs text-slate-500 mt-1">Invoice #{downloadPickerInvoice.invoiceNum}</p>
+                </div>
+                <button type="button" onClick={() => setDownloadPickerInvoice(null)} className="premium-btn-secondary !py-1.5 !px-3 text-xs">
+                  <X className="w-3.5 h-3.5" /> Close
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadPdf(downloadPickerInvoice.id);
+                    setDownloadPickerInvoice(null);
+                  }}
+                  className="premium-btn-secondary justify-start"
+                >
+                  <Download className="w-4 h-4" /> Download Invoice
+                </button>
+                <button
+                  type="button"
+                  disabled={!downloadPickerInvoice.payStatementPath}
+                  onClick={() => {
+                    if (!downloadPickerInvoice.payStatementPath) return;
+                    downloadPayStatement(downloadPickerInvoice.id);
+                    setDownloadPickerInvoice(null);
+                  }}
+                  className="premium-btn-secondary justify-start disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-4 h-4" />
+                  {downloadPickerInvoice.payStatementPath ? 'Download Pay Statement' : 'Pay Statement Not Available'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -843,3 +984,4 @@ export default function Invoices() {
     </div>
   );
 }
+

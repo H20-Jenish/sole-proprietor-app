@@ -224,14 +224,27 @@ After login, navigate to **Settings** to update business profile values (name, e
 - Styled PDF generation with embedded timesheet summary table
 - Color-coded status: **Orange** (Pending) / **Violet** (Partial Paid) / **Green** (Paid)
 - Payment workflow:
-  - Record amount paid (supports partial payments)
+  - Record payment amounts with payment date (supports partial and follow-up payments)
+  - Each payment is stored as a separate payment-history entry (date + amount)
+  - Additional partial payments are appended and do not overwrite earlier partial-payment dates
+  - Invoice-level paid date keeps the first payment date; full history is visible in expanded details
   - Add payment notes
   - Upload required pay statement before marking paid/partial
   - View/download pay statement
+- Status action icons in invoice table:
+  - Pending: green Record Payment icon
+  - Partial Paid: yellow Partial Payment icon
+  - Paid: red Undo Invoice icon (resets payment status/history back to pending)
+- Marked invoices use a dedicated download picker modal to choose Invoice or Pay Statement download
 - Paid/partial invoices support expandable payment details row in table:
   - Payment notes
   - Pay statement quick-view action
+  - Payment history table (all recorded payment dates and amounts)
 - Invoices table refined for compact no-wrap display without horizontal scrolling
+- Invoice summary cards now align with collected/outstanding logic:
+  - Pending = outstanding balance (includes unpaid remainder from partial invoices)
+  - Partial = amount received for partial invoices
+  - Collected = total received amount across invoices
 
 ### Reports
 - Dedicated **Reports** page with real-time analytics from existing app data
