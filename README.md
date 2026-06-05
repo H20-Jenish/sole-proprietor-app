@@ -57,7 +57,7 @@ JWT_SECRET=your_random_32_char_string_here
 ### 3. Launch
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ### 4. Access
@@ -89,13 +89,13 @@ Prisma migrate and seed run **automatically** when the backend container starts.
 To manually reset the database (destroys all data):
 
 ```bash
-docker-compose exec backend npx prisma migrate reset --force
+docker compose exec backend npx prisma migrate reset --force
 ```
 
 To run migrations manually:
 
 ```bash
-docker-compose exec backend npx prisma migrate deploy
+docker compose exec backend npx prisma migrate deploy
 ```
 
 ---
@@ -133,28 +133,28 @@ Files are organized by `clientId` and referenced by path in the database.
 
 ```bash
 # Backend
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # All services
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### Restart Services
 
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
 ### Stop Application
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Full Reset (Data + Uploads + Backups)
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 > This destroys the database, uploads, and backup volumes. Use with caution.
@@ -252,6 +252,7 @@ After login, navigate to **Settings** to update business profile values (name, e
 - KPI cards:
   - Invoiced, collected, outstanding
   - Expenses, hours logged, mileage
+  - Tax split summary cards for CPP, EI, and HST (based on values entered on the Tax page)
 - Charts:
   - Monthly invoiced vs collected (latest 6 months)
   - Invoice status mix (pending/partial/paid)
@@ -270,6 +271,15 @@ After login, navigate to **Settings** to update business profile values (name, e
   - Timesheets (new/edit)
   - Invoices (generate new)
 - Filters redesigned as compact/collapsible panels so tables stay visible and readable.
+
+### Tax
+- Dedicated **Tax** page for paid invoices only
+- Card-based workflow for each paid invoice:
+  - Top-right **Edit** action to open/close CPP, EI, and HST input fields
+  - Collapsed card view shows CPP/EI/HST amounts and percentage split
+  - Top-right download actions for **Invoice** and **Paystatement**
+- Tax entries are persisted in browser local storage (`taxPageInputs`)
+- Dashboard and Reports read the same Tax entries and display matching CPP/EI/HST summary cards
 
 ---
 
@@ -343,8 +353,8 @@ git push -u origin main
 ### Database connection fails
 
 ```bash
-docker-compose ps          # Check container health
-docker-compose logs db     # Check PostgreSQL logs
+docker compose ps          # Check container health
+docker compose logs db     # Check PostgreSQL logs
 ```
 
 ### Backend won't start
@@ -356,7 +366,7 @@ Ensure the database is healthy first. The backend waits for the DB health check 
 Check that the `uploads` volume is mounted and writable:
 
 ```bash
-docker-compose exec backend ls -la /app/uploads
+docker compose exec backend ls -la /app/uploads
 ```
 
 ### Invoice PDF does not reflect latest changes
@@ -364,7 +374,7 @@ docker-compose exec backend ls -la /app/uploads
 Code changes require rebuilding containers in this Dockerized setup:
 
 ```bash
-docker-compose up -d --build backend nginx
+docker compose up -d --build backend nginx
 ```
 
 If invoice content/layout changed, generate a **new** invoice PDF. Existing saved PDFs are not auto-regenerated.
@@ -374,13 +384,13 @@ If invoice content/layout changed, generate a **new** invoice PDF. Existing save
 For Settings/Frontend UI updates (backup controls, snapshot actions, modal/form layout), rebuild frontend + nginx:
 
 ```bash
-docker-compose up -d --build frontend nginx
+docker compose up -d --build frontend nginx
 ```
 
 For backup logic or invoice backend behavior updates, rebuild backend too:
 
 ```bash
-docker-compose up -d --build backend frontend nginx
+docker compose up -d --build backend frontend nginx
 ```
 
 ### Port 8002 already in use

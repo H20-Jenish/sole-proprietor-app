@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../api.js';
 import { 
   Users, Receipt, Clock, FileText, TrendingUp, DollarSign, 
@@ -6,13 +6,39 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
+function toAmount(value) {
+  const parsed = parseFloat(String(value || '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readStoredTaxInputs() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem('taxPageInputs');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState({ clients: 0, expenses: 0, hours: 0, invoices: 0, pendingTotal: 0, paidTotal: 0, totalMileage: 0 });
   const [daily, setDaily] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [invoiceRows, setInvoiceRows] = useState([]);
+  const [taxInputs, setTaxInputs] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const syncTaxInputs = () => setTaxInputs(readStoredTaxInputs());
+    syncTaxInputs();
+    window.addEventListener('focus', syncTaxInputs);
+    return () => window.removeEventListener('focus', syncTaxInputs);
+  }, []);
 
   async function load() {
     try {
@@ -65,6 +91,7 @@ export default function Dashboard() {
       setStats({ clients, expenses, hours, invoices, pendingTotal, paidTotal, totalMileage });
       setDaily(chart);
       setRecentActivity(activity);
+      setInvoiceRows(Array.isArray(i.data) ? i.data : []);
     } finally {
       setLoading(false);
     }
@@ -90,6 +117,29 @@ export default function Dashboard() {
       </div>
     </div>
   );
+
+  const taxSummary = useMemo(() => {
+    const paidInvoices = invoiceRows.filter((x) => x.status === 'PAID');
+    const base = paidInvoices.reduce((sum, x) => sum + Number(x.total || 0), 0);
+
+    const amounts = paidInvoices.reduce((acc, inv) => {
+      const row = taxInputs?.[inv.id] || taxInputs?.[String(inv.id)] || {};
+      acc.cpp += toAmount(row.cpp);
+      acc.ei += toAmount(row.ei);
+      acc.hst += toAmount(row.hst);
+      return acc;
+    }, { cpp: 0, ei: 0, hst: 0 });
+
+    return {
+      cpp: amounts.cpp,
+      ei: amounts.ei,
+      hst: amounts.hst,
+      base,
+      cppPct: base > 0 ? (amounts.cpp / base) * 100 : 0,
+      eiPct: base > 0 ? (amounts.ei / base) * 100 : 0,
+      hstPct: base > 0 ? (amounts.hst / base) * 100 : 0,
+    };
+  }, [invoiceRows, taxInputs]);
 
   if (loading) {
     return (
@@ -119,6 +169,21 @@ export default function Dashboard() {
         <StatCard title="Invoices" value={stats.invoices} icon={FileText} color="bg-gradient-to-br from-emerald-500 to-teal-600" subtext="Generated invoices" />
         <StatCard title="Pending Revenue" value={`$${stats.pendingTotal.toFixed(2)}`} icon={TrendingUp} color="bg-gradient-to-br from-amber-500 to-orange-600" subtext="Awaiting payment" />
         <StatCard title="Paid Revenue" value={`$${stats.paidTotal.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-green-500 to-emerald-600" subtext="Collected payments" />
+      </div>
+
+      <div className="mb-8">
+        <div className="flex items-end justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Tax Split Summary</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Based on Tax page values for paid invoices</p>
+          </div>
+          <p className="text-xs text-slate-400">Base: ${taxSummary.base.toFixed(2)}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard title="CPP Portion" value={`$${taxSummary.cpp.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-sky-500 to-cyan-600" subtext={`${taxSummary.cppPct.toFixed(1)}% of paid invoices`} />
+          <StatCard title="EI Portion" value={`$${taxSummary.ei.toFixed(2)}`} icon={Clock} color="bg-gradient-to-br from-indigo-500 to-blue-600" subtext={`${taxSummary.eiPct.toFixed(1)}% of paid invoices`} />
+          <StatCard title="HST Portion" value={`$${taxSummary.hst.toFixed(2)}`} icon={Receipt} color="bg-gradient-to-br from-emerald-500 to-teal-600" subtext={`${taxSummary.hstPct.toFixed(1)}% of paid invoices`} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

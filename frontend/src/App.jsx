@@ -8,6 +8,7 @@ import Recruiters from './components/Recruiters';
 import Expenses from './components/Expenses';
 import Timesheets from './components/Timesheets';
 import Invoices from './components/Invoices';
+import Tax from './components/Tax';
 import Settings from './components/Settings';
 import Resources from './components/Resources';
 import SecurityGateModalHost from './components/SecurityGateModalHost';
@@ -31,6 +32,7 @@ function AppRoutes() {
         <Route path="expenses" element={<Expenses />} />
         <Route path="timesheets" element={<Timesheets />} />
         <Route path="invoices" element={<Invoices />} />
+        <Route path="tax" element={<Tax />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
         <Route path="resources" element={<Resources />} />

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Users, Receipt, Clock, FileText, LogOut, Menu, X,
-  ChevronRight, Briefcase, Handshake, Settings, BellRing, Route, Activity
+  ChevronRight, Briefcase, Handshake, Settings, BellRing, Route, Activity, Percent
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../api.js';
@@ -28,6 +28,7 @@ const links = [
   { to: '/timesheets', label: 'Timesheets', icon: Clock },
   { to: '/resources', label: 'Resources', icon: Briefcase },
   { to: '/invoices', label: 'Invoices', icon: FileText },
+  { to: '/tax', label: 'Tax', icon: Percent },
   { to: '/reports', label: 'Reports', icon: Activity },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
