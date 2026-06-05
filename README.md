@@ -215,6 +215,7 @@ After login, navigate to **Settings** to update business profile values, backup 
 - Payment workflow:
   - Record payment amounts with payment date
   - Record CPP, EI, and HST on non-expense invoices when payment is captured
+  - Follow-up payments only expose tax fields that are still missing from earlier payments
   - Partial payments are stored in payment history
   - Invoice-level paid date keeps the first payment date
   - Add payment notes

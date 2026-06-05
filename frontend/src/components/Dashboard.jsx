@@ -6,6 +6,10 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
+function isExpenseInvoice(invoice) {
+  return Array.isArray(invoice?.items) && invoice.items.some((item) => !!item.expenseId && !item.timesheetId);
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState({ clients: 0, expenses: 0, hours: 0, invoices: 0, pendingTotal: 0, paidTotal: 0, totalMileage: 0 });
   const [daily, setDaily] = useState([]);
@@ -94,7 +98,7 @@ export default function Dashboard() {
   );
 
   const taxSummary = useMemo(() => {
-    const paidInvoices = invoiceRows.filter((x) => x.status === 'PAID' || x.status === 'PARTIAL');
+    const paidInvoices = invoiceRows.filter((x) => (x.status === 'PAID' || x.status === 'PARTIAL') && !isExpenseInvoice(x));
     const base    = paidInvoices.reduce((s, x) => s + Number(x.amountPaid  || 0), 0);
     const cpp     = paidInvoices.reduce((s, x) => s + Number(x.taxCpp       || 0), 0);
     const ei      = paidInvoices.reduce((s, x) => s + Number(x.taxEi        || 0), 0);

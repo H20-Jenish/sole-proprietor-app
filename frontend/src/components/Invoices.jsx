@@ -205,7 +205,8 @@ export default function Invoices() {
     const inv = invoices.find((x) => x.id === id);
     if (!inv) return;
     const remaining = Math.max(0, Number(inv.total || 0) - Number(inv.amountPaid || 0));
-    setPaymentInvoice(inv);
+    const isExpenseInvoice = Array.isArray(inv.items) && inv.items.some((item) => !!item.expenseId && !item.timesheetId);
+    setPaymentInvoice({ ...inv, isExpenseInvoice });
     setPaymentForm({
       amountPaid: remaining.toFixed(2),
       paidDate: todayYmd(),
@@ -340,6 +341,9 @@ export default function Invoices() {
   const selectedExpenseTotal = selectedExpenses.reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
   const selectedClient = clients.find(c => String(c.id) === String(form.clientId));
+  function isExpenseInvoiceRow(invoice) {
+    return Array.isArray(invoice?.items) && invoice.items.some((item) => !!item.expenseId && !item.timesheetId);
+  }
   const totalPending = invoices.reduce((s, i) => s + Math.max(0, Number(i.total || 0) - Number(i.amountPaid || 0)), 0);
   const totalPartial = invoices.filter(i => i.status === 'PARTIAL').reduce((s, i) => s + Number(i.amountPaid || 0), 0);
   const totalPaid = invoices.reduce((s, i) => s + Number(i.amountPaid || 0), 0);
@@ -673,24 +677,33 @@ export default function Invoices() {
               </div>
 
               {(() => {
+                const isExpenseInvoice = !!paymentInvoice.isExpenseInvoice;
                 // Determine which tax fields were captured in previous payments.
                 // For a fresh invoice (no prior payments), all fields are open.
                 // For a PARTIAL invoice, only show fields that are still missing (zero accumulated tax).
-                const isFollowUp = paymentInvoice.status === 'PARTIAL';
+                const isFollowUp = !isExpenseInvoice && paymentInvoice.status === 'PARTIAL';
                 const prevCpp = Number(paymentInvoice.taxCpp || 0);
                 const prevEi  = Number(paymentInvoice.taxEi  || 0);
                 const prevHst = Number(paymentInvoice.taxHst || 0);
-                const showCpp = !isFollowUp || prevCpp <= 0;
-                const showEi  = !isFollowUp || prevEi  <= 0;
-                const showHst = !isFollowUp || prevHst <= 0;
+                const showCpp = !isExpenseInvoice && (!isFollowUp || prevCpp <= 0);
+                const showEi  = !isExpenseInvoice && (!isFollowUp || prevEi  <= 0);
+                const showHst = !isExpenseInvoice && (!isFollowUp || prevHst <= 0);
                 const activeCols = [showCpp, showEi, showHst].filter(Boolean).length;
                 const gridCols = activeCols === 1 ? 'grid-cols-1' : activeCols === 2 ? 'grid-cols-2' : 'grid-cols-3';
                 const hasMissingTax = showCpp || showEi || showHst;
                 return (
                   <div className="mt-3 border-t border-slate-100 pt-3">
-                    <p className="text-xs font-semibold text-slate-700 mb-1">
-                      Tax Deductions{isFollowUp ? ' — continuing from payment 1' : ' (optional)'}
-                    </p>
+                    {!isExpenseInvoice && (
+                      <p className="text-xs font-semibold text-slate-700 mb-1">
+                        Tax Deductions{isFollowUp ? ' — continuing from payment 1' : ' (optional)'}
+                      </p>
+                    )}
+
+                    {isExpenseInvoice && (
+                      <div className="mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+                        Expense invoices do not use CPP, EI, or HST. Only payment amount is required.
+                      </div>
+                    )}
 
                     {isFollowUp && (prevCpp > 0 || prevEi > 0 || prevHst > 0) && (
                       <div className="mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500 flex flex-wrap gap-3">
@@ -701,11 +714,11 @@ export default function Invoices() {
                       </div>
                     )}
 
-                    {isFollowUp && !hasMissingTax && (
+                    {isFollowUp && !hasMissingTax && !isExpenseInvoice && (
                       <p className="mb-2 text-[11px] text-slate-400 italic">All tax portions were already recorded on earlier payment(s).</p>
                     )}
 
-                    {isFollowUp && hasMissingTax && (
+                    {isFollowUp && hasMissingTax && !isExpenseInvoice && (
                       <p className="mb-2 text-[11px] text-slate-400 italic">Only missing tax portion(s) are available to enter.</p>
                     )}
 

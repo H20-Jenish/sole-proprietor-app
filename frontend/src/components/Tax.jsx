@@ -26,6 +26,10 @@ function TaxTile({ label, amount, base, color }) {
   );
 }
 
+function isExpenseInvoice(invoice) {
+  return Array.isArray(invoice?.items) && invoice.items.some((item) => !!item.expenseId && !item.timesheetId);
+}
+
 export default function Tax() {
   const [invoices, setInvoices] = useState([]);
   const [search, setSearch] = useState('');
@@ -56,6 +60,7 @@ export default function Tax() {
   const totals = useMemo(() => {
     return visible.reduce(
       (acc, inv) => {
+        if (isExpenseInvoice(inv)) return acc;
         acc.gross      += Number(inv.amountPaid  || 0);
         acc.cpp        += Number(inv.taxCpp       || 0);
         acc.ei         += Number(inv.taxEi        || 0);
@@ -143,11 +148,12 @@ export default function Tax() {
       ) : (
         <div className="grid gap-4">
           {visible.map((invoice) => {
+            const expenseInvoice = isExpenseInvoice(invoice);
             const gross = Number(invoice.amountPaid || 0);
-            const cpp   = Number(invoice.taxCpp       || 0);
-            const ei    = Number(invoice.taxEi        || 0);
-            const hst   = Number(invoice.taxHst       || 0);
-            const net   = Number(invoice.taxNetIncome || 0);
+            const cpp   = expenseInvoice ? 0 : Number(invoice.taxCpp       || 0);
+            const ei    = expenseInvoice ? 0 : Number(invoice.taxEi        || 0);
+            const hst   = expenseInvoice ? 0 : Number(invoice.taxHst       || 0);
+            const net   = expenseInvoice ? gross : Number(invoice.taxNetIncome || 0);
 
             return (
               <div key={invoice.id} className="form-card border-slate-200">
@@ -196,7 +202,13 @@ export default function Tax() {
                   </div>
                 </div>
 
-                {cpp === 0 && ei === 0 && hst === 0 && net === 0 && (
+                {expenseInvoice && (
+                  <p className="mt-3 text-xs text-slate-400 italic">
+                    Expense invoices do not use CPP, EI, or HST.
+                  </p>
+                )}
+
+                {!expenseInvoice && cpp === 0 && ei === 0 && hst === 0 && net === 0 && (
                   <p className="mt-3 text-xs text-slate-400 italic">
                     No tax data recorded. Enter CPP, EI and HST when recording payment on the Invoices page.
                   </p>

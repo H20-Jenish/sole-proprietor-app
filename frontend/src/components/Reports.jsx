@@ -72,6 +72,10 @@ function StatCard({ title, value, subtitle, icon: Icon, tone }) {
   );
 }
 
+function isExpenseInvoice(invoice) {
+  return Array.isArray(invoice?.items) && invoice.items.some((item) => !!item.expenseId && !item.timesheetId);
+}
+
 export default function Reports() {
   const [filters, setFilters] = useState({ clientId: '', startDate: '', endDate: '' });
   const [showFilters, setShowFilters] = useState(false);
@@ -239,7 +243,7 @@ export default function Reports() {
   }, [invoices, expenses, timesheets, mileage]);
 
   const taxSummary = useMemo(() => {
-    const paid = invoices.filter((x) => x.status === 'PAID' || x.status === 'PARTIAL');
+    const paid = invoices.filter((x) => (x.status === 'PAID' || x.status === 'PARTIAL') && !isExpenseInvoice(x));
     const base = paid.reduce((s, x) => s + Number(x.amountPaid  || 0), 0);
     const cpp  = paid.reduce((s, x) => s + Number(x.taxCpp       || 0), 0);
     const ei   = paid.reduce((s, x) => s + Number(x.taxEi        || 0), 0);

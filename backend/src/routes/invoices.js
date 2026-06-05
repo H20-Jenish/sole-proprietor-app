@@ -61,6 +61,7 @@ router.get('/', authMiddleware, async (req, res) => {
     where,
     include: {
       client: { select: { id: true, name: true, payRateType: true } },
+      items: { select: { expenseId: true, timesheetId: true } },
       payments: { orderBy: { createdAt: 'asc' } },
     },
     orderBy: { createdDate: 'desc' },
@@ -286,8 +287,12 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
 
 router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStatement'), async (req, res) => {
   const invoiceId = Number(req.params.id);
-  const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { items: { select: { expenseId: true, timesheetId: true } } },
+  });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  const isExpenseInvoice = Array.isArray(invoice.items) && invoice.items.some((item) => !!item.expenseId && !item.timesheetId);
 
   const rawPaymentAmount = Number(req.body?.amountPaid);
   if (!Number.isFinite(rawPaymentAmount) || rawPaymentAmount <= 0) {
@@ -299,14 +304,14 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
   const rawCpp = parseFloat(String(req.body?.cpp || '0'));
   const rawEi  = parseFloat(String(req.body?.ei  || '0'));
   const rawHst = parseFloat(String(req.body?.hst || '0'));
-  const cpp = Number.isFinite(rawCpp) && rawCpp >= 0 ? parseFloat(rawCpp.toFixed(2)) : 0;
-  const ei  = Number.isFinite(rawEi)  && rawEi  >= 0 ? parseFloat(rawEi.toFixed(2))  : 0;
-  const hst = Number.isFinite(rawHst) && rawHst >= 0 ? parseFloat(rawHst.toFixed(2)) : 0;
+  const cpp = isExpenseInvoice ? 0 : (Number.isFinite(rawCpp) && rawCpp >= 0 ? parseFloat(rawCpp.toFixed(2)) : 0);
+  const ei  = isExpenseInvoice ? 0 : (Number.isFinite(rawEi)  && rawEi  >= 0 ? parseFloat(rawEi.toFixed(2))  : 0);
+  const hst = isExpenseInvoice ? 0 : (Number.isFinite(rawHst) && rawHst >= 0 ? parseFloat(rawHst.toFixed(2)) : 0);
   const taxSum = parseFloat((cpp + ei + hst).toFixed(2));
-  if (taxSum > paymentAmount + 0.00001) {
+  if (!isExpenseInvoice && taxSum > paymentAmount + 0.00001) {
     return res.status(400).json({ error: 'CPP + EI + HST cannot exceed the payment amount' });
   }
-  const paymentNetIncome = parseFloat((paymentAmount - taxSum).toFixed(2));
+  const paymentNetIncome = isExpenseInvoice ? paymentAmount : parseFloat((paymentAmount - taxSum).toFixed(2));
   const existingPaid = Number(invoice.amountPaid || 0);
   const nextAmountPaid = parseFloat((existingPaid + paymentAmount).toFixed(2));
   if (nextAmountPaid > Number(invoice.total || 0) + 0.00001) {
@@ -359,10 +364,10 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
       },
     });
 
-    const newTaxCpp = parseFloat((Number(invoice.taxCpp || 0) + cpp).toFixed(2));
-    const newTaxEi  = parseFloat((Number(invoice.taxEi  || 0) + ei).toFixed(2));
-    const newTaxHst = parseFloat((Number(invoice.taxHst || 0) + hst).toFixed(2));
-    const newTaxNet = parseFloat((nextAmountPaid - newTaxCpp - newTaxEi - newTaxHst).toFixed(2));
+    const newTaxCpp = isExpenseInvoice ? 0 : parseFloat((Number(invoice.taxCpp || 0) + cpp).toFixed(2));
+    const newTaxEi  = isExpenseInvoice ? 0 : parseFloat((Number(invoice.taxEi  || 0) + ei).toFixed(2));
+    const newTaxHst = isExpenseInvoice ? 0 : parseFloat((Number(invoice.taxHst || 0) + hst).toFixed(2));
+    const newTaxNet = isExpenseInvoice ? nextAmountPaid : parseFloat((nextAmountPaid - newTaxCpp - newTaxEi - newTaxHst).toFixed(2));
 
     return tx.invoice.update({
       where: { id: invoiceId },
