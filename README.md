@@ -1,6 +1,6 @@
 # Sole Proprietor Business Manager
 
-A single-user, Dockerized full-stack application for managing clients, expenses, timesheets, and invoices. Built specifically for Canadian sole proprietors with HST (13%) handling.
+A single-user, Dockerized full-stack application for managing clients, expenses, timesheets, invoices, and tax breakdowns. Built for Canadian sole proprietors with HST handling.
 
 ---
 
@@ -161,9 +161,9 @@ docker compose down -v
 
 ---
 
-## Updating Business Settings
+### Updating Business Settings
 
-After login, navigate to **Settings** to update business profile values (name, email, business name, phone, HST, password).
+After login, navigate to **Settings** to update business profile values, backup settings, and password.
 
 - Settings access is protected by a password re-authentication prompt.
 - When you leave Settings and come back, password confirmation is required again.
@@ -172,114 +172,91 @@ After login, navigate to **Settings** to update business profile values (name, e
 
 ## Features Overview
 
-### Client Management Portal (CMP)
-- CRUD clients with locations, pay rates, contract details
+### Client Management
+- CRUD clients with locations, pay rates, contract details, and recruiter assignment
 - Upload and preview contract PDFs
-- Support for direct and middle-party (recruiter) billing
+- Support for direct and middle-party billing
 
-### Expense Tracker
-- Log expenses per client with date/time, amount, description
-- Upload receipt images (JPG/PNG/PDF)
+### Expense Tracking
+- Log expenses per client with date/time, amount, and description
+- Upload receipt images or PDFs
 - Inline preview and download
 - Filter by client and date range
-- Export to Excel (.xlsx) with styled headers
-- Date display is timezone-safe for date-only expense records (prevents day-shift/off-by-one display)
-- Expense rows show invoice state highlighting:
-  - Orange strip = invoiced but pending payment
-  - Violet strip = partially paid invoice
-  - Green strip = invoiced and paid
+- Export to Excel (`.xlsx`) with styled headers
+- Timezone-safe display for date-only expense records
+- Invoice-state highlighting on expense rows:
+  - Orange = invoiced but pending payment
+  - Violet = partially paid invoice
+  - Green = fully paid invoice
 
 ### Timesheets
-- Log daily entries: location, date, start/end times
+- Log daily entries with location, date, start/end times
 - Auto-computed total hours
 - Filter by client and period
-- Running totals in table footer
-- Timesheet rows show invoice state highlighting:
-  - Orange strip = invoiced but pending payment
-  - Violet strip = partially paid invoice
-  - Green strip = invoiced and paid
+- Running totals in the table footer
+- Invoice-state highlighting on timesheet rows:
+  - Orange = invoiced but pending payment
+  - Violet = partially paid invoice
+  - Green = fully paid invoice
 
 ### Invoices
-- Generate invoices from timesheet periods
-- Timesheet date intelligence in invoice modal:
-  - Shows worked-day count and uninvoiced worked-day count for selected client
-  - Displays uninvoiced worked dates as visual chips
-  - Auto-suggests next bi-weekly range from earliest uninvoiced worked date
-  - Provides one-click action to apply suggested bi-weekly range
-  - Helps identify when a period is still missing an invoice before it is generated
-- Auto-calculate hours, rate, subtotal, HST 13%, total
-- Toggle billing to client or recruiter (for middle-party setups)
-- Generate expense reimbursement invoices by selecting specific expenses
-- Expense invoices do not add extra tax (treated as tax-inclusive reimbursements)
-- Expense invoice PDFs include receipt filename references and attach receipt pages (image/PDF receipts)
+- Generate invoices from timesheet periods or selected expenses
+- Timesheet invoice helper in the invoice modal:
+  - Shows worked-day count and uninvoiced worked-day count for the selected client
+  - Displays uninvoiced worked dates as chips
+  - Suggests the next bi-weekly range from the earliest uninvoiced worked date
+- Expense invoices are tax-inclusive reimbursements and do not add extra tax
 - Expense invoice generation does not require period dates when expenses are selected
-- Duplicate safety net:
-  - Prevents generating an invoice for expenses already tied to another invoice
-  - Prevents generating an invoice for timesheets already tied to another invoice
-  - Expense picker disables already-invoiced items and shows invoice number/status
-- Historical invoice linkage backfill:
-  - Existing invoices are linked to eligible historical timesheets/expenses on backend startup
-  - Enables strip-color status for older records, not just newly created invoices
+- Duplicate safety checks prevent re-invoicing already linked timesheets or expenses
+- Historical invoice linkage backfill runs on backend startup for older records
 - Auto-incrementing invoice numbers
 - Styled PDF generation with embedded timesheet summary table
-- Color-coded status: **Orange** (Pending) / **Violet** (Partial Paid) / **Green** (Paid)
+- Color-coded invoice status: Orange, Violet, Green
 - Payment workflow:
-  - Record payment amounts with payment date (supports partial and follow-up payments)
-  - Each payment is stored as a separate payment-history entry (date + amount)
-  - Additional partial payments are appended and do not overwrite earlier partial-payment dates
-  - Invoice-level paid date keeps the first payment date; full history is visible in expanded details
+  - Record payment amounts with payment date
+  - Record CPP, EI, and HST on non-expense invoices when payment is captured
+  - Partial payments are stored in payment history
+  - Invoice-level paid date keeps the first payment date
   - Add payment notes
   - Upload required pay statement before marking paid/partial
-  - View/download pay statement
-- Status action icons in invoice table:
-  - Pending: green Record Payment icon
-  - Partial Paid: yellow Partial Payment icon
-  - Paid: red Undo Invoice icon (resets payment status/history back to pending)
-- Marked invoices use a dedicated download picker modal to choose Invoice or Pay Statement download
-- Paid/partial invoices support expandable payment details row in table:
+  - View or download pay statement
+- Expense invoices do not ask for CPP, EI, or HST during payment
+- Invoice payment modal only shows tax fields that are still missing on follow-up payments
+- Marked invoices use a dedicated download picker modal for Invoice or Pay Statement
+- Paid/partial invoices support expandable payment details:
   - Payment notes
   - Pay statement quick-view action
-  - Payment history table (all recorded payment dates and amounts)
-- Invoices table refined for compact no-wrap display without horizontal scrolling
-- Invoice summary cards now align with collected/outstanding logic:
-  - Pending = outstanding balance (includes unpaid remainder from partial invoices)
-  - Partial = amount received for partial invoices
-  - Collected = total received amount across invoices
-
-### Reports
-- Dedicated **Reports** page with real-time analytics from existing app data
-- Filter by client and date range
-- KPI cards:
-  - Invoiced, collected, outstanding
-  - Expenses, hours logged, mileage
-  - Tax split summary cards for CPP, EI, and HST (based on values entered on the Tax page)
-- Charts:
-  - Monthly invoiced vs collected (latest 6 months)
-  - Invoice status mix (pending/partial/paid)
-  - Top clients by invoiced amount
-- Client performance table:
-  - Invoiced, collected, outstanding, hours, expenses
-
-### Billing Reminders
-- Invoice generation now highlights worked days that have not yet been invoiced.
-- The invoice modal suggests the next bi-weekly period from the earliest uninvoiced worked date.
-- This helps you spot which periods still need invoices before creating them.
-
-### UX Improvements
-- Data entry moved into modals for:
-  - Expenses (new/edit)
-  - Timesheets (new/edit)
-  - Invoices (generate new)
-- Filters redesigned as compact/collapsible panels so tables stay visible and readable.
+  - Payment history table
+- Invoice summary cards align with collected and outstanding balances
 
 ### Tax
 - Dedicated **Tax** page for paid invoices only
-- Card-based workflow for each paid invoice:
-  - Top-right **Edit** action to open/close CPP, EI, and HST input fields
-  - Collapsed card view shows CPP/EI/HST amounts and percentage split
-  - Top-right download actions for **Invoice** and **Paystatement**
-- Tax entries are persisted in browser local storage (`taxPageInputs`)
-- Dashboard and Reports read the same Tax entries and display matching CPP/EI/HST summary cards
+- Read-only tax cards for each paid invoice
+- Shows CPP, EI, HST, and Net Income breakdown
+- Top-right download actions for **Invoice** and **Paystatement**
+- Expense invoices are excluded from tax totals and do not display tax rows
+
+### Reports
+- Dedicated **Reports** page with analytics from app data
+- Filter by client and date range
+- KPI cards for invoiced, collected, outstanding, expenses, hours logged, mileage, and tax split summaries
+- Charts for monthly invoiced vs collected, invoice status mix, and top clients by invoiced amount
+- Client performance table with invoiced, collected, outstanding, hours, and expenses
+
+### Dashboard
+- High-level summary cards for clients, expenses, hours, mileage, invoices, pending revenue, and collected revenue
+- Tax summary cards for CPP, EI, HST, and Net Income
+- Daily hours chart and recent activity feed
+
+### Settings
+- Update business profile values
+- Manage backup settings and password
+- Password re-authentication required for protected settings actions
+
+### Backups
+- Automatic snapshots for database and uploads
+- Manual snapshot, download, and restore controls in the app
+- Retention and backup interval controls in Settings
 
 ---
 
@@ -451,9 +428,15 @@ sole-proprietor-app/
             ├── Login.jsx
             ├── Dashboard.jsx
             ├── Clients.jsx
+          ├── Recruiters.jsx
             ├── Expenses.jsx
             ├── Timesheets.jsx
             ├── Invoices.jsx
+          ├── Tax.jsx
+          ├── Reports.jsx
+          ├── Settings.jsx
+          ├── Resources.jsx
+          ├── SecurityGateModalHost.jsx
             └── FileViewer.jsx
 ```
 
