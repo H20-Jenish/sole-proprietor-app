@@ -672,53 +672,100 @@ export default function Invoices() {
                 Already received: ${Number(paymentInvoice.amountPaid || 0).toFixed(2)} • Remaining: ${Math.max(0, Number(paymentInvoice.total || 0) - Number(paymentInvoice.amountPaid || 0)).toFixed(2)}
               </div>
 
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                <p className="text-xs font-semibold text-slate-700 mb-2">Tax Deductions (optional)</p>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPP</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="premium-input"
-                      placeholder="0.00"
-                      value={paymentForm.cpp}
-                      onChange={e => setPaymentForm((prev) => ({ ...prev, cpp: e.target.value }))}
-                    />
+              {(() => {
+                // Determine which tax fields were captured in previous payments.
+                // For a fresh invoice (no prior payments), all fields are open.
+                // For a PARTIAL invoice, only show fields that were already used (non-zero accumulated tax).
+                const isFollowUp = paymentInvoice.status === 'PARTIAL';
+                const prevCpp = Number(paymentInvoice.taxCpp || 0);
+                const prevEi  = Number(paymentInvoice.taxEi  || 0);
+                const prevHst = Number(paymentInvoice.taxHst || 0);
+                const anyPrevTax = prevCpp > 0 || prevEi > 0 || prevHst > 0;
+                // Which fields to show: on follow-up, only the ones that were previously used.
+                // If none were used before, show all (user didn't enter any tax on payment 1).
+                const showCpp = !isFollowUp || !anyPrevTax || prevCpp > 0;
+                const showEi  = !isFollowUp || !anyPrevTax || prevEi  > 0;
+                const showHst = !isFollowUp || !anyPrevTax || prevHst > 0;
+                const activeCols = [showCpp, showEi, showHst].filter(Boolean).length;
+                const gridCols = activeCols === 1 ? 'grid-cols-1' : activeCols === 2 ? 'grid-cols-2' : 'grid-cols-3';
+                return (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    <p className="text-xs font-semibold text-slate-700 mb-1">
+                      Tax Deductions{isFollowUp ? ' — continuing from payment 1' : ' (optional)'}
+                    </p>
+
+                    {isFollowUp && anyPrevTax && (
+                      <div className="mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500 flex flex-wrap gap-3">
+                        <span className="font-semibold text-slate-600">Already allocated:</span>
+                        {prevCpp > 0 && <span>CPP ${prevCpp.toFixed(2)}</span>}
+                        {prevEi  > 0 && <span>EI ${prevEi.toFixed(2)}</span>}
+                        {prevHst > 0 && <span>HST ${prevHst.toFixed(2)}</span>}
+                      </div>
+                    )}
+
+                    {isFollowUp && !anyPrevTax && (
+                      <p className="mb-2 text-[11px] text-slate-400 italic">No tax was recorded in the previous payment — all fields are available.</p>
+                    )}
+
+                    <div className={`grid ${gridCols} gap-3`}>
+                      {showCpp && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPP</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="premium-input"
+                            placeholder="0.00"
+                            value={paymentForm.cpp}
+                            onChange={e => setPaymentForm((prev) => ({ ...prev, cpp: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                      {showEi && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">EI</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="premium-input"
+                            placeholder="0.00"
+                            value={paymentForm.ei}
+                            onChange={e => setPaymentForm((prev) => ({ ...prev, ei: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                      {showHst && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">HST</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="premium-input"
+                            placeholder="0.00"
+                            value={paymentForm.hst}
+                            onChange={e => setPaymentForm((prev) => ({ ...prev, hst: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-emerald-700">Net Income (this payment)</span>
+                      <span className="text-sm font-bold text-emerald-800">
+                        ${Math.max(0,
+                          Number(paymentForm.amountPaid || 0)
+                          - (showCpp ? Number(paymentForm.cpp || 0) : 0)
+                          - (showEi  ? Number(paymentForm.ei  || 0) : 0)
+                          - (showHst ? Number(paymentForm.hst || 0) : 0)
+                        ).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">EI</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="premium-input"
-                      placeholder="0.00"
-                      value={paymentForm.ei}
-                      onChange={e => setPaymentForm((prev) => ({ ...prev, ei: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">HST</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="premium-input"
-                      placeholder="0.00"
-                      value={paymentForm.hst}
-                      onChange={e => setPaymentForm((prev) => ({ ...prev, hst: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-emerald-700">Net Income (this payment)</span>
-                  <span className="text-sm font-bold text-emerald-800">
-                    ${Math.max(0, Number(paymentForm.amountPaid || 0) - Number(paymentForm.cpp || 0) - Number(paymentForm.ei || 0) - Number(paymentForm.hst || 0)).toFixed(2)}
-                  </span>
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="mt-3">
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Payment Date</label>
