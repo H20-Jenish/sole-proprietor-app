@@ -92,6 +92,10 @@ model Invoice {
   pdfPath      String?
   invoiceNum   Int
   createdDate  DateTime      @default(now())
+  taxCpp       Float         @default(0)
+  taxEi        Float         @default(0)
+  taxHst       Float         @default(0)
+  taxNetIncome Float         @default(0)
   items        InvoiceItem[]
   payments     InvoicePayment[]
 }
@@ -104,6 +108,10 @@ model InvoicePayment {
   paidDate         DateTime @db.Date
   notes            String?
   payStatementPath String?
+  cpp              Float    @default(0)
+  ei               Float    @default(0)
+  hst              Float    @default(0)
+  netIncome        Float    @default(0)
   createdAt        DateTime @default(now())
 }
 

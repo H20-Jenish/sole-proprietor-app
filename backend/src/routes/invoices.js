@@ -270,6 +270,10 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
         amountPaid: null,
         paidNotes: null,
         payStatementPath: null,
+        taxCpp: 0,
+        taxEi: 0,
+        taxHst: 0,
+        taxNetIncome: 0,
       },
       include: {
         client: { select: { id: true, name: true, payRateType: true } },
@@ -291,6 +295,18 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
   }
 
   const paymentAmount = parseFloat(rawPaymentAmount.toFixed(2));
+
+  const rawCpp = parseFloat(String(req.body?.cpp || '0'));
+  const rawEi  = parseFloat(String(req.body?.ei  || '0'));
+  const rawHst = parseFloat(String(req.body?.hst || '0'));
+  const cpp = Number.isFinite(rawCpp) && rawCpp >= 0 ? parseFloat(rawCpp.toFixed(2)) : 0;
+  const ei  = Number.isFinite(rawEi)  && rawEi  >= 0 ? parseFloat(rawEi.toFixed(2))  : 0;
+  const hst = Number.isFinite(rawHst) && rawHst >= 0 ? parseFloat(rawHst.toFixed(2)) : 0;
+  const taxSum = parseFloat((cpp + ei + hst).toFixed(2));
+  if (taxSum > paymentAmount + 0.00001) {
+    return res.status(400).json({ error: 'CPP + EI + HST cannot exceed the payment amount' });
+  }
+  const paymentNetIncome = parseFloat((paymentAmount - taxSum).toFixed(2));
   const existingPaid = Number(invoice.amountPaid || 0);
   const nextAmountPaid = parseFloat((existingPaid + paymentAmount).toFixed(2));
   if (nextAmountPaid > Number(invoice.total || 0) + 0.00001) {
@@ -336,8 +352,17 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
         paidDate,
         notes: notes || null,
         payStatementPath: payStatementPath || null,
+        cpp,
+        ei,
+        hst,
+        netIncome: paymentNetIncome,
       },
     });
+
+    const newTaxCpp = parseFloat((Number(invoice.taxCpp || 0) + cpp).toFixed(2));
+    const newTaxEi  = parseFloat((Number(invoice.taxEi  || 0) + ei).toFixed(2));
+    const newTaxHst = parseFloat((Number(invoice.taxHst || 0) + hst).toFixed(2));
+    const newTaxNet = parseFloat((nextAmountPaid - newTaxCpp - newTaxEi - newTaxHst).toFixed(2));
 
     return tx.invoice.update({
       where: { id: invoiceId },
@@ -347,6 +372,10 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
         amountPaid: nextAmountPaid,
         paidNotes: notes || invoice.paidNotes || null,
         payStatementPath,
+        taxCpp: newTaxCpp,
+        taxEi:  newTaxEi,
+        taxHst: newTaxHst,
+        taxNetIncome: newTaxNet,
       },
       include: {
         client: { select: { id: true, name: true, payRateType: true } },

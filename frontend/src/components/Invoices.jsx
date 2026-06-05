@@ -73,7 +73,7 @@ export default function Invoices() {
   const [previewFile, setPreviewFile] = useState(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false });
+  const [paymentForm, setPaymentForm] = useState({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false, cpp: '', ei: '', hst: '' });
   const [downloadPickerInvoice, setDownloadPickerInvoice] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState(null);
@@ -212,6 +212,9 @@ export default function Invoices() {
       notes: '',
       payStatement: null,
       keepExistingPayStatement: !!inv.payStatementPath,
+      cpp: '',
+      ei: '',
+      hst: '',
     });
     setPaymentModalOpen(true);
   }
@@ -237,6 +240,9 @@ export default function Invoices() {
       fd.append('paidDate', String(paymentForm.paidDate || todayYmd()));
       fd.append('notes', paymentForm.notes || '');
       fd.append('keepExistingPayStatement', paymentForm.keepExistingPayStatement ? 'true' : 'false');
+      fd.append('cpp', String(parseFloat(paymentForm.cpp || 0) || 0));
+      fd.append('ei',  String(parseFloat(paymentForm.ei  || 0) || 0));
+      fd.append('hst', String(parseFloat(paymentForm.hst || 0) || 0));
       if (paymentForm.payStatement) fd.append('payStatement', paymentForm.payStatement);
 
       await api.put(`/invoices/${paymentInvoice.id}/payment`, fd, {
@@ -245,7 +251,7 @@ export default function Invoices() {
 
       setPaymentModalOpen(false);
       setPaymentInvoice(null);
-      setPaymentForm({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false });
+      setPaymentForm({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false, cpp: '', ei: '', hst: '' });
       load();
     } catch (err) {
       alert(err?.response?.data?.error || 'Failed to record payment');
@@ -664,6 +670,54 @@ export default function Invoices() {
 
               <div className="mt-2 text-[11px] text-slate-500">
                 Already received: ${Number(paymentInvoice.amountPaid || 0).toFixed(2)} • Remaining: ${Math.max(0, Number(paymentInvoice.total || 0) - Number(paymentInvoice.amountPaid || 0)).toFixed(2)}
+              </div>
+
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <p className="text-xs font-semibold text-slate-700 mb-2">Tax Deductions (optional)</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPP</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="premium-input"
+                      placeholder="0.00"
+                      value={paymentForm.cpp}
+                      onChange={e => setPaymentForm((prev) => ({ ...prev, cpp: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">EI</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="premium-input"
+                      placeholder="0.00"
+                      value={paymentForm.ei}
+                      onChange={e => setPaymentForm((prev) => ({ ...prev, ei: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">HST</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="premium-input"
+                      placeholder="0.00"
+                      value={paymentForm.hst}
+                      onChange={e => setPaymentForm((prev) => ({ ...prev, hst: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-emerald-700">Net Income (this payment)</span>
+                  <span className="text-sm font-bold text-emerald-800">
+                    ${Math.max(0, Number(paymentForm.amountPaid || 0) - Number(paymentForm.cpp || 0) - Number(paymentForm.ei || 0) - Number(paymentForm.hst || 0)).toFixed(2)}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-3">
