@@ -675,26 +675,24 @@ export default function Invoices() {
               {(() => {
                 // Determine which tax fields were captured in previous payments.
                 // For a fresh invoice (no prior payments), all fields are open.
-                // For a PARTIAL invoice, only show fields that were already used (non-zero accumulated tax).
+                // For a PARTIAL invoice, only show fields that are still missing (zero accumulated tax).
                 const isFollowUp = paymentInvoice.status === 'PARTIAL';
                 const prevCpp = Number(paymentInvoice.taxCpp || 0);
                 const prevEi  = Number(paymentInvoice.taxEi  || 0);
                 const prevHst = Number(paymentInvoice.taxHst || 0);
-                const anyPrevTax = prevCpp > 0 || prevEi > 0 || prevHst > 0;
-                // Which fields to show: on follow-up, only the ones that were previously used.
-                // If none were used before, show all (user didn't enter any tax on payment 1).
-                const showCpp = !isFollowUp || !anyPrevTax || prevCpp > 0;
-                const showEi  = !isFollowUp || !anyPrevTax || prevEi  > 0;
-                const showHst = !isFollowUp || !anyPrevTax || prevHst > 0;
+                const showCpp = !isFollowUp || prevCpp <= 0;
+                const showEi  = !isFollowUp || prevEi  <= 0;
+                const showHst = !isFollowUp || prevHst <= 0;
                 const activeCols = [showCpp, showEi, showHst].filter(Boolean).length;
                 const gridCols = activeCols === 1 ? 'grid-cols-1' : activeCols === 2 ? 'grid-cols-2' : 'grid-cols-3';
+                const hasMissingTax = showCpp || showEi || showHst;
                 return (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <p className="text-xs font-semibold text-slate-700 mb-1">
                       Tax Deductions{isFollowUp ? ' — continuing from payment 1' : ' (optional)'}
                     </p>
 
-                    {isFollowUp && anyPrevTax && (
+                    {isFollowUp && (prevCpp > 0 || prevEi > 0 || prevHst > 0) && (
                       <div className="mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500 flex flex-wrap gap-3">
                         <span className="font-semibold text-slate-600">Already allocated:</span>
                         {prevCpp > 0 && <span>CPP ${prevCpp.toFixed(2)}</span>}
@@ -703,54 +701,60 @@ export default function Invoices() {
                       </div>
                     )}
 
-                    {isFollowUp && !anyPrevTax && (
-                      <p className="mb-2 text-[11px] text-slate-400 italic">No tax was recorded in the previous payment — all fields are available.</p>
+                    {isFollowUp && !hasMissingTax && (
+                      <p className="mb-2 text-[11px] text-slate-400 italic">All tax portions were already recorded on earlier payment(s).</p>
                     )}
 
-                    <div className={`grid ${gridCols} gap-3`}>
-                      {showCpp && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPP</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            className="premium-input"
-                            placeholder="0.00"
-                            value={paymentForm.cpp}
-                            onChange={e => setPaymentForm((prev) => ({ ...prev, cpp: e.target.value }))}
-                          />
-                        </div>
-                      )}
-                      {showEi && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">EI</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            className="premium-input"
-                            placeholder="0.00"
-                            value={paymentForm.ei}
-                            onChange={e => setPaymentForm((prev) => ({ ...prev, ei: e.target.value }))}
-                          />
-                        </div>
-                      )}
-                      {showHst && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">HST</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            className="premium-input"
-                            placeholder="0.00"
-                            value={paymentForm.hst}
-                            onChange={e => setPaymentForm((prev) => ({ ...prev, hst: e.target.value }))}
-                          />
-                        </div>
-                      )}
-                    </div>
+                    {isFollowUp && hasMissingTax && (
+                      <p className="mb-2 text-[11px] text-slate-400 italic">Only missing tax portion(s) are available to enter.</p>
+                    )}
+
+                    {hasMissingTax ? (
+                      <div className={`grid ${gridCols} gap-3`}>
+                        {showCpp && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPP</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="premium-input"
+                              placeholder="0.00"
+                              value={paymentForm.cpp}
+                              onChange={e => setPaymentForm((prev) => ({ ...prev, cpp: e.target.value }))}
+                            />
+                          </div>
+                        )}
+                        {showEi && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">EI</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="premium-input"
+                              placeholder="0.00"
+                              value={paymentForm.ei}
+                              onChange={e => setPaymentForm((prev) => ({ ...prev, ei: e.target.value }))}
+                            />
+                          </div>
+                        )}
+                        {showHst && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">HST</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="premium-input"
+                              placeholder="0.00"
+                              value={paymentForm.hst}
+                              onChange={e => setPaymentForm((prev) => ({ ...prev, hst: e.target.value }))}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
 
                     <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 flex items-center justify-between">
                       <span className="text-xs font-semibold text-emerald-700">Net Income (this payment)</span>
