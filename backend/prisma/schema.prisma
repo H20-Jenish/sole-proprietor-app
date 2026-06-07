@@ -67,6 +67,7 @@ model Timesheet {
   date       DateTime @db.Date
   startTime  String
   endTime    String
+  breakMinutes Int?
   totalHours Float
   createdAt  DateTime @default(now())
   invoiceItems InvoiceItem[]

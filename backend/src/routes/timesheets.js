@@ -42,6 +42,12 @@ function computeHours(start, end, deductionMinutes = 0) {
   return parseFloat((netMinutes / 60).toFixed(2));
 }
 
+function normalizeBreakMinutes(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
+}
+
 function toYmd(value) {
   if (!value) return '';
   return formatDateOnly(value);
@@ -67,7 +73,8 @@ router.get('/', authMiddleware, async (req, res) => {
     orderBy: { date: 'desc' },
   });
   const adjusted = rows.map((r) => {
-    const deduction = r.client && r.client.paysBreak === false ? Number(r.client.paidBreakMinutes || 0) : 0;
+    const fallbackDeduction = r.client && r.client.paysBreak === false ? Number(r.client.paidBreakMinutes || 0) : 0;
+    const deduction = r.breakMinutes == null ? fallbackDeduction : Number(r.breakMinutes || 0);
     // Find short name for this location if available
     let shortLoc = r.location;
     if (Array.isArray(r.client?.siteLocations)) {
@@ -77,6 +84,7 @@ router.get('/', authMiddleware, async (req, res) => {
     return {
       ...r,
       location: shortLoc,
+      breakMinutes: deduction,
       totalHours: computeHours(r.startTime, r.endTime, deduction),
       invoiceId: r.invoiceItems?.[0]?.invoice?.id || null,
       invoiceNum: r.invoiceItems?.[0]?.invoice?.invoiceNum || null,
@@ -104,7 +112,8 @@ router.get('/export', authMiddleware, async (req, res) => {
 
   // Recalculate totalHours for export to ensure break deduction is reflected
   const adjusted = rows.map((r) => {
-    const deduction = r.client && r.client.paysBreak === false ? Number(r.client.paidBreakMinutes || 0) : 0;
+    const fallbackDeduction = r.client && r.client.paysBreak === false ? Number(r.client.paidBreakMinutes || 0) : 0;
+    const deduction = r.breakMinutes == null ? fallbackDeduction : Number(r.breakMinutes || 0);
     // Find short name for this location if available
     let shortLoc = r.location;
     if (Array.isArray(r.client?.siteLocations)) {
@@ -114,6 +123,7 @@ router.get('/export', authMiddleware, async (req, res) => {
     return {
       ...r,
       location: shortLoc,
+      breakMinutes: deduction,
       totalHours: computeHours(r.startTime, r.endTime, deduction),
     };
   });
@@ -140,14 +150,17 @@ router.get('/export', authMiddleware, async (req, res) => {
 });
 
 router.post('/', authMiddleware, async (req, res) => {
-  const { clientId, location, date, startTime, endTime } = req.body;
+  const { clientId, location, date, startTime, endTime, breakMinutes } = req.body;
   const client = await prisma.client.findUnique({
     where: { id: Number(clientId) },
     select: { id: true, paysBreak: true, paidBreakMinutes: true },
   });
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
-  const deductionMinutes = client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0;
+  const manualBreak = normalizeBreakMinutes(breakMinutes);
+  const deductionMinutes = manualBreak == null
+    ? (client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0)
+    : manualBreak;
   const totalHours = computeHours(startTime, endTime, deductionMinutes);
   const normalizedDate = dateOnly(date);
   const row = await prisma.timesheet.create({
@@ -157,6 +170,7 @@ router.post('/', authMiddleware, async (req, res) => {
       date: normalizedDate,
       startTime,
       endTime,
+      breakMinutes: deductionMinutes,
       totalHours,
     },
     include: { client: { select: { id: true, name: true } } },
@@ -170,14 +184,17 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 router.put('/:id', authMiddleware, async (req, res) => {
-  const { clientId, location, date, startTime, endTime } = req.body;
+  const { clientId, location, date, startTime, endTime, breakMinutes } = req.body;
   const client = await prisma.client.findUnique({
     where: { id: Number(clientId) },
     select: { id: true, paysBreak: true, paidBreakMinutes: true },
   });
   if (!client) return res.status(404).json({ error: 'Client not found' });
 
-  const deductionMinutes = client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0;
+  const manualBreak = normalizeBreakMinutes(breakMinutes);
+  const deductionMinutes = manualBreak == null
+    ? (client.paysBreak === false ? Number(client.paidBreakMinutes || 0) : 0)
+    : manualBreak;
   const totalHours = computeHours(startTime, endTime, deductionMinutes);
   const normalizedDate = dateOnly(date);
 
@@ -189,6 +206,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
       date: normalizedDate,
       startTime,
       endTime,
+      breakMinutes: deductionMinutes,
       totalHours,
     },
     include: { client: { select: { id: true, name: true } } },

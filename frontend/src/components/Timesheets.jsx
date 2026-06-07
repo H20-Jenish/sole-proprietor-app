@@ -27,7 +27,7 @@ export default function Timesheets() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [clients, setClients] = useState([]);
-  const [form, setForm] = useState({ clientId: '', location: '', date: '', startTime: '', endTime: '' });
+  const [form, setForm] = useState({ clientId: '', location: '', date: '', startTime: '', endTime: '', breakMinutes: 60 });
   const [filters, setFilters] = useState({ clientId: '', startDate: '', endDate: '' });
   const [showFilters, setShowFilters] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
@@ -70,7 +70,7 @@ export default function Timesheets() {
       setMileageTarget(null);
       window.dispatchEvent(new Event('mileage-notifications-changed'));
     }
-    setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '' });
+    setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '', breakMinutes: 60 });
     setEntryOpen(false);
     load();
   }
@@ -83,6 +83,7 @@ export default function Timesheets() {
       date: String(row.date).slice(0, 10),
       startTime: row.startTime || '',
       endTime: row.endTime || '',
+      breakMinutes: Number(row.breakMinutes ?? 60),
     });
     setEntryOpen(true);
   }
@@ -126,7 +127,7 @@ export default function Timesheets() {
         </div>
         <button
           onClick={() => {
-            setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '' });
+            setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '', breakMinutes: 60 });
             setEntryOpen(true);
           }}
           className="premium-btn-primary"
@@ -291,7 +292,7 @@ export default function Timesheets() {
 
       {entryOpen && (
         <div className="modal-overlay" onClick={() => setEntryOpen(false)}>
-          <div className="modal-content max-w-5xl" onClick={e => e.stopPropagation()}>
+          <div className="modal-content max-w-7xl" onClick={e => e.stopPropagation()}>
             <form onSubmit={add} className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-slate-900 text-sm">{form.id ? 'Edit Time Entry' : 'Log Time Entry'}</h3>
@@ -299,21 +300,23 @@ export default function Timesheets() {
                   type="button"
                   onClick={() => {
                     setEntryOpen(false);
-                    setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '' });
+                    setForm({ clientId: '', location: '', date: '', startTime: '', endTime: '', breakMinutes: 60 });
                   }}
                   className="premium-btn-secondary !py-1.5 !px-3 text-xs"
                 >
                   <X className="w-3.5 h-3.5" /> Close
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 items-end">
+                <div className="xl:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Client</label>
                   <select required className="premium-select" value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}>
                     <option value="">Select Client</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
-                <div>
+                <div className="xl:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Location / Site</label>
                   <input
                     required
                     list="client-sites"
@@ -327,23 +330,40 @@ export default function Timesheets() {
                   </datalist>
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date</label>
                   <input required type="date" className="premium-input" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Start Time</label>
                   <div className="relative">
                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input required type="time" className="premium-input pl-9" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} />
                   </div>
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">End Time</label>
                   <div className="relative">
                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input required type="time" className="premium-input pl-9" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} />
                   </div>
                 </div>
-                <button className="premium-btn-primary h-[42px]">
-                  {form.id ? <><Edit2 className="w-4 h-4" /> Update Entry</> : <><Plus className="w-4 h-4" /> Log Entry</>}
-                </button>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Break (mins)</label>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="1"
+                    className="premium-input"
+                    value={form.breakMinutes}
+                    onChange={e => setForm({ ...form, breakMinutes: e.target.value === '' ? '' : Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <button className="premium-btn-primary h-[42px] w-full">
+                    {form.id ? <><Edit2 className="w-4 h-4" /> Update Entry</> : <><Plus className="w-4 h-4" /> Log Entry</>}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

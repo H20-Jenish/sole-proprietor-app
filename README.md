@@ -191,6 +191,8 @@ After login, navigate to **Settings** to update business profile values, backup 
 
 ### Timesheets
 - Log daily entries with location, date, start/end times
+- Manual break input per entry (in minutes)
+- New entries default to a 60-minute break and can be overridden by the user
 - Auto-computed total hours
 - Filter by client and period
 - Running totals in the table footer
