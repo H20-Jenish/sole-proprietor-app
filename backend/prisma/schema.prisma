@@ -92,6 +92,7 @@ model Invoice {
   payStatementPath String?
   pdfPath      String?
   invoiceNum   Int
+  workedDays   Int           @default(0)
   createdDate  DateTime      @default(now())
   taxCpp       Float         @default(0)
   taxEi        Float         @default(0)

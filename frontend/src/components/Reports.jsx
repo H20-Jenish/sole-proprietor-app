@@ -55,6 +55,31 @@ function currency(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function roundMoney(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function splitPaidGrossAndHst(invoice) {
+  const paidTotal = Number(invoice?.amountPaid || 0);
+  if (!Number.isFinite(paidTotal) || paidTotal <= 0) return { total: 0, gross: 0, hst: 0 };
+
+  const invoiceTotal = Number(invoice?.total || 0);
+  const invoiceHst = Number(invoice?.hst13pct || 0);
+
+  let hst = 0;
+  if (Number.isFinite(invoiceTotal) && invoiceTotal > 0 && Number.isFinite(invoiceHst) && invoiceHst > 0) {
+    const paidRatio = Math.min(1, Math.max(0, paidTotal / invoiceTotal));
+    hst = roundMoney(invoiceHst * paidRatio);
+  } else {
+    // Fallback for legacy rows that may not have hst13pct populated.
+    hst = roundMoney(paidTotal * 0.13);
+  }
+
+  hst = Math.min(hst, roundMoney(paidTotal));
+  const gross = roundMoney(Math.max(0, paidTotal - hst));
+  return { total: roundMoney(paidTotal), gross, hst };
+}
+
 function StatCard({ title, value, subtitle, icon: Icon, tone }) {
   return (
     <div className="stat-card">
@@ -244,16 +269,30 @@ export default function Reports() {
 
   const taxSummary = useMemo(() => {
     const paid = invoices.filter((x) => (x.status === 'PAID' || x.status === 'PARTIAL') && !isExpenseInvoice(x));
-    const base = paid.reduce((s, x) => s + Number(x.amountPaid  || 0), 0);
-    const cpp  = paid.reduce((s, x) => s + Number(x.taxCpp       || 0), 0);
-    const ei   = paid.reduce((s, x) => s + Number(x.taxEi        || 0), 0);
-    const hst  = paid.reduce((s, x) => s + Number(x.taxHst       || 0), 0);
-    const net  = paid.reduce((s, x) => s + Number(x.taxNetIncome || 0), 0);
+    const aggregated = paid.reduce((acc, inv) => {
+      const { total, gross, hst } = splitPaidGrossAndHst(inv);
+      const cpp = Number(inv.taxCpp || 0);
+      const ei = Number(inv.taxEi || 0);
+      acc.total += total;
+      acc.base += gross;
+      acc.cpp += cpp;
+      acc.ei += ei;
+      acc.hst += hst;
+      acc.net += (gross - cpp - ei);
+      return acc;
+    }, { total: 0, base: 0, cpp: 0, ei: 0, hst: 0, net: 0 });
+
+    const total = roundMoney(aggregated.total);
+    const base = total;
+    const cpp = roundMoney(aggregated.cpp);
+    const ei = roundMoney(aggregated.ei);
+    const hst = roundMoney(aggregated.hst);
+    const net = roundMoney(aggregated.net);
     return {
       cpp, ei, hst, net, base,
       cppPct: base > 0 ? (cpp / base) * 100 : 0,
       eiPct:  base > 0 ? (ei  / base) * 100 : 0,
-      hstPct: base > 0 ? (hst / base) * 100 : 0,
+      hstPct: total > 0 ? (hst / total) * 100 : 0,
     };
   }, [invoices]);
 
@@ -332,14 +371,14 @@ export default function Reports() {
         <div className="flex items-end justify-between mb-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Tax Split Summary</h2>
-            <p className="text-xs text-slate-500 mt-0.5">From Tax page entries for paid invoices in current filter</p>
+            <p className="text-xs text-slate-500 mt-0.5">Based on Tax page values for paid invoices</p>
           </div>
           <p className="text-xs text-slate-400">Base: {currency(taxSummary.base)}</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <StatCard title="CPP Portion" value={currency(taxSummary.cpp)} subtitle={`${taxSummary.cppPct.toFixed(1)}% of gross`} icon={Wallet} tone="bg-gradient-to-br from-sky-500 to-cyan-600" />
-          <StatCard title="EI Portion" value={currency(taxSummary.ei)} subtitle={`${taxSummary.eiPct.toFixed(1)}% of gross`} icon={Clock3} tone="bg-gradient-to-br from-indigo-500 to-blue-600" />
-          <StatCard title="HST Portion" value={currency(taxSummary.hst)} subtitle={`${taxSummary.hstPct.toFixed(1)}% of gross`} icon={Receipt} tone="bg-gradient-to-br from-violet-500 to-purple-600" />
+          <StatCard title="CPP Portion" value={currency(taxSummary.cpp)} icon={Wallet} tone="bg-gradient-to-br from-sky-500 to-cyan-600" />
+          <StatCard title="EI Portion" value={currency(taxSummary.ei)} icon={Clock3} tone="bg-gradient-to-br from-indigo-500 to-blue-600" />
+          <StatCard title="HST Portion" value={currency(taxSummary.hst)} icon={Receipt} tone="bg-gradient-to-br from-violet-500 to-purple-600" />
           <StatCard title="Net Income" value={currency(taxSummary.net)} subtitle="After CPP + EI + HST" icon={DollarSign} tone="bg-gradient-to-br from-emerald-500 to-teal-600" />
         </div>
       </div>

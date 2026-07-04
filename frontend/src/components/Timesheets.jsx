@@ -23,6 +23,20 @@ function formatDayOfWeek(value) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short' });
 }
 
+const PAID_INVOICE_COLORS = ['#10b981', '#0ea5e9', '#2563eb', '#14b8a6', '#22c55e', '#06b6d4'];
+
+function accentColorForInvoice(status, invoiceId, paidColorIndexMap) {
+  if (status === 'PENDING') return '#f59e0b';
+  if (status === 'PARTIAL') return '#8b5cf6';
+  if (status === 'PAID') {
+    if (!paidColorIndexMap.has(invoiceId)) {
+      paidColorIndexMap.set(invoiceId, paidColorIndexMap.size % PAID_INVOICE_COLORS.length);
+    }
+    return PAID_INVOICE_COLORS[paidColorIndexMap.get(invoiceId)];
+  }
+  return '#94a3b8';
+}
+
 export default function Timesheets() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -102,11 +116,73 @@ export default function Timesheets() {
   }
 
   function invoiceRowClass(row) {
-    if (row.invoiceStatus === 'PAID') return 'bg-emerald-50/70 border-l-4 border-emerald-400';
-    if (row.invoiceStatus === 'PARTIAL') return 'bg-violet-50/80 border-l-4 border-violet-400';
-    if (row.invoiceStatus === 'PENDING') return 'bg-amber-50/70 border-l-4 border-amber-400';
+    if (row.invoiceId) return 'transition-colors';
     return '';
   }
+
+  function invoiceRibbonClass(invoiceStatus) {
+    if (invoiceStatus === 'PAID') return 'invoice-ribbon-paid';
+    if (invoiceStatus === 'PARTIAL') return 'invoice-ribbon-partial';
+    if (invoiceStatus === 'PENDING') return 'invoice-ribbon-pending';
+    return 'invoice-ribbon-neutral';
+  }
+
+  function buildInvoiceRibbonMeta(entries) {
+    const meta = new Map();
+    const paidColorIndexMap = new Map();
+    let i = 0;
+
+    while (i < entries.length) {
+      const row = entries[i];
+      const invoiceId = row?.invoiceId;
+      if (!invoiceId) {
+        meta.set(row.id, {
+          show: true,
+          rowSpan: 1,
+          label: '',
+          status: null,
+          isFirst: false,
+          isLast: false,
+          accentColor: '',
+        });
+        i += 1;
+        continue;
+      }
+
+      let j = i + 1;
+      while (j < entries.length && entries[j]?.invoiceId === invoiceId) j += 1;
+
+      const rowSpan = j - i;
+      const accentColor = accentColorForInvoice(row.invoiceStatus, invoiceId, paidColorIndexMap);
+      meta.set(row.id, {
+        show: true,
+        rowSpan,
+        label: `INV #${row.invoiceNum ?? invoiceId}`,
+        status: row.invoiceStatus || null,
+        isFirst: true,
+        isLast: rowSpan === 1,
+        accentColor,
+      });
+
+      for (let k = i + 1; k < j; k += 1) {
+        meta.set(entries[k].id, {
+          show: false,
+          rowSpan: 0,
+          label: '',
+          status: row.invoiceStatus || null,
+          isFirst: false,
+          isLast: k === j - 1,
+          accentColor,
+        });
+      }
+
+      i = j;
+    }
+
+    return meta;
+  }
+
+  const invoiceRibbonMeta = buildInvoiceRibbonMeta(rows);
 
   const totalHours = rows.reduce((s, r) => s + Number(r.totalHours), 0);
   const selectedClient = clients.find(c => String(c.id) === String(form.clientId));
@@ -215,7 +291,6 @@ export default function Timesheets() {
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{rows.length}</span>
             <span className="ml-3 inline-flex items-center gap-1 text-xs text-slate-500"><span className="w-3 h-3 rounded-sm bg-amber-100 border border-amber-300" /> Invoiced (Pending)</span>
             <span className="inline-flex items-center gap-1 text-xs text-slate-500"><span className="w-3 h-3 rounded-sm bg-violet-100 border border-violet-300" /> Partial Paid</span>
-            <span className="inline-flex items-center gap-1 text-xs text-slate-500"><span className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-300" /> Invoiced (Paid)</span>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={downloadExcel} className="premium-btn-secondary !py-2 !px-3 text-xs">
@@ -231,6 +306,7 @@ export default function Timesheets() {
           <table className="premium-table timesheet-table">
             <thead>
               <tr>
+                <th className="w-[34px]"></th>
                 <th>Date</th>
                 <th>Day</th>
                 <th>Client</th>
@@ -243,9 +319,9 @@ export default function Timesheets() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="py-8 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan={9} className="py-8 text-center text-slate-400">Loading...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8}>
+                <tr><td colSpan={9}>
                   <div className="empty-state py-12">
                     <Clock className="w-10 h-10 mb-2 text-slate-300" />
                     <p className="text-sm font-medium text-slate-600">No timesheet entries</p>
@@ -253,8 +329,40 @@ export default function Timesheets() {
                   </div>
                 </td></tr>
               ) : (
-                rows.map(r => (
-                  <tr key={r.id} className={invoiceRowClass(r)}>
+                rows.map(r => {
+                  const ribbon = invoiceRibbonMeta.get(r.id) || {
+                    show: true,
+                    rowSpan: 1,
+                    label: '',
+                    status: null,
+                    isFirst: false,
+                    isLast: false,
+                    accentColor: '',
+                  };
+                  const ribbonStyle = ribbon.accentColor
+                    ? {
+                      backgroundColor: `${ribbon.accentColor}22`,
+                      borderColor: `${ribbon.accentColor}88`,
+                      color: ribbon.accentColor,
+                    }
+                    : undefined;
+                  const rowStyle = ribbon.accentColor
+                    ? {
+                      backgroundColor: `${ribbon.accentColor}10`,
+                      boxShadow: `inset 4px 0 ${ribbon.accentColor}`,
+                      borderTop: ribbon.isFirst ? `1px solid ${ribbon.accentColor}66` : undefined,
+                      borderBottom: ribbon.isLast ? `1px solid ${ribbon.accentColor}66` : undefined,
+                    }
+                    : undefined;
+                  return (
+                  <tr key={r.id} className={invoiceRowClass(r)} style={rowStyle}>
+                    {ribbon.show && (
+                      <td rowSpan={ribbon.rowSpan} className="px-1 py-0 align-top border-b border-slate-100 bg-white/70">
+                        {ribbon.label ? (
+                          <div className={`invoice-ribbon ${invoiceRibbonClass(ribbon.status)}`} style={ribbonStyle}>{ribbon.label}</div>
+                        ) : null}
+                      </td>
+                    )}
                     <td className="whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -283,7 +391,8 @@ export default function Timesheets() {
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>

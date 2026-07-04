@@ -11,6 +11,31 @@ function currency(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function roundMoney(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function splitPaidGrossAndHst(invoice) {
+  const paidTotal = Number(invoice?.amountPaid || 0);
+  if (!Number.isFinite(paidTotal) || paidTotal <= 0) return { total: 0, gross: 0, hst: 0 };
+
+  const invoiceTotal = Number(invoice?.total || 0);
+  const invoiceHst = Number(invoice?.hst13pct || 0);
+
+  let hst = 0;
+  if (Number.isFinite(invoiceTotal) && invoiceTotal > 0 && Number.isFinite(invoiceHst) && invoiceHst > 0) {
+    const paidRatio = Math.min(1, Math.max(0, paidTotal / invoiceTotal));
+    hst = roundMoney(invoiceHst * paidRatio);
+  } else {
+    // Fallback for legacy rows that may not have hst13pct populated.
+    hst = roundMoney(paidTotal * 0.13);
+  }
+
+  hst = Math.min(hst, roundMoney(paidTotal));
+  const gross = roundMoney(Math.max(0, paidTotal - hst));
+  return { total: roundMoney(paidTotal), gross, hst };
+}
+
 function pct(value, base) {
   if (!base || base <= 0) return '0.0%';
   return `${((Number(value || 0) / base) * 100).toFixed(1)}%`;
@@ -61,14 +86,19 @@ export default function Tax() {
     return visible.reduce(
       (acc, inv) => {
         if (isExpenseInvoice(inv)) return acc;
-        acc.gross      += Number(inv.amountPaid  || 0);
-        acc.cpp        += Number(inv.taxCpp       || 0);
-        acc.ei         += Number(inv.taxEi        || 0);
-        acc.hst        += Number(inv.taxHst       || 0);
-        acc.netIncome  += Number(inv.taxNetIncome || 0);
+        const paidTotal = Number(inv.amountPaid || 0);
+        const { gross, hst } = splitPaidGrossAndHst(inv);
+        const cpp = Number(inv.taxCpp || 0);
+        const ei = Number(inv.taxEi || 0);
+        acc.totalPay += paidTotal;
+        acc.gross += gross;
+        acc.cpp += cpp;
+        acc.ei += ei;
+        acc.hst += hst;
+        acc.netIncome += (gross - cpp - ei);
         return acc;
       },
-      { gross: 0, cpp: 0, ei: 0, hst: 0, netIncome: 0 }
+      { totalPay: 0, gross: 0, cpp: 0, ei: 0, hst: 0, netIncome: 0 }
     );
   }, [visible]);
 
@@ -91,10 +121,6 @@ export default function Tax() {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <div className="stat-card border-slate-200">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Gross Paid</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{currency(totals.gross)}</p>
-        </div>
         <div className="stat-card border-sky-100">
           <p className="text-xs font-semibold text-sky-600 uppercase tracking-wider">CPP Total</p>
           <p className="text-2xl font-bold text-sky-700 mt-1">{currency(totals.cpp)}</p>
@@ -106,10 +132,21 @@ export default function Tax() {
         <div className="stat-card border-violet-100">
           <p className="text-xs font-semibold text-violet-600 uppercase tracking-wider">HST Total</p>
           <p className="text-2xl font-bold text-violet-700 mt-1">{currency(totals.hst)}</p>
+          <p className="text-xs text-slate-400 mt-1">Based on generated invoice HST amount</p>
         </div>
-        <div className="stat-card border-emerald-100 sm:col-span-4">
+        <div className="stat-card border-amber-100">
+          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Total Pay (Timesheet, Incl. HST)</p>
+          <p className="text-2xl font-bold text-amber-700 mt-1">{currency(totals.totalPay)}</p>
+          <p className="text-xs text-slate-400 mt-1">Timesheet invoices only. Includes gross paid, HST, CPP, and EI</p>
+        </div>
+        <div className="stat-card border-cyan-100 sm:col-span-2">
+          <p className="text-xs font-semibold text-cyan-600 uppercase tracking-wider">Gross Paid (Excl. HST)</p>
+          <p className="text-2xl font-bold text-cyan-700 mt-1">{currency(totals.gross)}</p>
+        </div>
+        <div className="stat-card border-emerald-100 sm:col-span-2">
           <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Net Income</p>
           <p className="text-2xl font-bold text-emerald-700 mt-1">{currency(totals.netIncome)}</p>
+          <p className="text-xs text-slate-400 mt-1">(Gross paid - HST - CPP - EI)</p>
           <p className="text-xs text-slate-400 mt-1">{pct(totals.netIncome, totals.gross)} of gross paid</p>
         </div>
       </div>
@@ -149,26 +186,33 @@ export default function Tax() {
         <div className="grid gap-4">
           {visible.map((invoice) => {
             const expenseInvoice = isExpenseInvoice(invoice);
-            const gross = Number(invoice.amountPaid || 0);
+            const paidTotal = Number(invoice.amountPaid || 0);
+            const split = splitPaidGrossAndHst(invoice);
+            const gross = expenseInvoice ? paidTotal : split.gross;
             const cpp   = expenseInvoice ? 0 : Number(invoice.taxCpp       || 0);
             const ei    = expenseInvoice ? 0 : Number(invoice.taxEi        || 0);
-            const hst   = expenseInvoice ? 0 : Number(invoice.taxHst       || 0);
-            const net   = expenseInvoice ? gross : Number(invoice.taxNetIncome || 0);
+            const hst   = expenseInvoice ? 0 : split.hst;
+            const net   = expenseInvoice ? gross : Math.max(0, roundMoney(gross - cpp - ei));
 
             return (
               <div key={invoice.id} className="form-card border-slate-200">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-slate-100 pb-4 mb-4">
                   <div>
-                    <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Invoice</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Invoice</p>
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${expenseInvoice ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-sky-50 border-sky-200 text-sky-700'}`}>
+                        {expenseInvoice ? 'Expense' : 'Timesheet'}
+                      </span>
+                    </div>
                     <h2 className="text-lg font-bold text-slate-900">#{invoice.invoiceNum}</h2>
                     <p className="text-sm text-slate-500 mt-0.5">{invoice.client?.name}</p>
                     <p className="text-sm text-slate-500 mt-0.5">Period: {formatDateRange(invoice.periodStart, invoice.periodEnd)}</p>
                   </div>
                   <div className="flex flex-col items-start sm:items-end gap-2">
                     <div className="text-left sm:text-right">
-                      <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Gross Paid</p>
-                      <p className="text-2xl font-bold text-slate-900">{currency(gross)}</p>
+                      <p className="text-xs uppercase tracking-wide font-semibold text-slate-500">Total Amount (Incl. HST)</p>
+                      <p className="text-2xl font-bold text-slate-900">{currency(paidTotal)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button

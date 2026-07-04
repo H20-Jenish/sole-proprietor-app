@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { PDFDocument } = require('pdf-lib');
 const { PrismaClient } = require('@prisma/client');
 const { authMiddleware } = require('../middleware/auth');
 const { generateInvoicePDF } = require('../utils/pdfGenerator');
@@ -22,6 +23,55 @@ const payStatementStorage = multer.diskStorage({
   },
 });
 const uploadPayStatement = multer({ storage: payStatementStorage, limits: { fileSize: 20 * 1024 * 1024 } });
+
+async function appendPayStatementToPdf(pdfDoc, absoluteFilePath) {
+  const ext = path.extname(absoluteFilePath).toLowerCase();
+  const bytes = fs.readFileSync(absoluteFilePath);
+
+  if (ext === '.pdf') {
+    const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const copiedPages = await pdfDoc.copyPages(src, src.getPageIndices());
+    copiedPages.forEach((page) => pdfDoc.addPage(page));
+    return;
+  }
+
+  if (ext === '.jpg' || ext === '.jpeg') {
+    const image = await pdfDoc.embedJpg(bytes);
+    const page = pdfDoc.addPage([image.width, image.height]);
+    page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+    return;
+  }
+
+  if (ext === '.png') {
+    const image = await pdfDoc.embedPng(bytes);
+    const page = pdfDoc.addPage([image.width, image.height]);
+    page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+    return;
+  }
+
+  throw new Error('Unsupported pay statement format. Use PDF, PNG, JPG, or JPEG.');
+}
+
+async function mergePayStatements(invoiceId, existingRelativePath, newRelativePath) {
+  const merged = await PDFDocument.create();
+
+  if (existingRelativePath) {
+    const existingAbs = path.join('/app/uploads', existingRelativePath);
+    if (fs.existsSync(existingAbs)) {
+      await appendPayStatementToPdf(merged, existingAbs);
+    }
+  }
+
+  const newAbs = path.join('/app/uploads', newRelativePath);
+  await appendPayStatementToPdf(merged, newAbs);
+
+  const mergedFilename = `invoice-${String(invoiceId)}-paystatement-merged-${Date.now()}.pdf`;
+  const mergedRelativePath = path.join('invoices', 'paystatements', mergedFilename);
+  const mergedAbs = path.join('/app/uploads', mergedRelativePath);
+  fs.writeFileSync(mergedAbs, await merged.save());
+
+  return mergedRelativePath;
+}
 
 function currentDateOnly() {
   const now = new Date();
@@ -91,6 +141,7 @@ router.post('/', authMiddleware, async (req, res) => {
   let subtotal = 0;
   let hst13pct = 0;
   let total = 0;
+  let workedDays = 0;
 
   if (invoiceSource === 'EXPENSE') {
     const ids = Array.isArray(expenseIds)
@@ -166,6 +217,7 @@ router.post('/', authMiddleware, async (req, res) => {
     }));
 
     totalHours = adjustedTimesheets.reduce((sum, t) => sum + Number(t.totalHours), 0);
+    workedDays = new Set(adjustedTimesheets.map((t) => formatDateOnly(t.date))).size;
     rate = Number(client.payRate) || 0;
     if (client.payRateType === 'HOURLY') subtotal = totalHours * rate;
     else subtotal = (rate / 52 / 40) * totalHours;
@@ -191,6 +243,7 @@ router.post('/', authMiddleware, async (req, res) => {
           periodStart: parseDateOnly(normalizedPeriodStart),
           periodEnd: parseDateOnly(normalizedPeriodEnd),
           totalHours,
+          workedDays,
           rate,
           subtotal,
           hst13pct,
@@ -341,11 +394,19 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
   }
 
   if (req.file) {
+    const uploadedRelativePath = path.join('invoices', 'paystatements', req.file.filename);
+
     if (invoice.payStatementPath) {
+      payStatementPath = await mergePayStatements(invoice.id, invoice.payStatementPath, uploadedRelativePath);
+
       const existingFile = path.join('/app/uploads', invoice.payStatementPath);
       if (fs.existsSync(existingFile)) fs.unlinkSync(existingFile);
+
+      const uploadedFile = path.join('/app/uploads', uploadedRelativePath);
+      if (fs.existsSync(uploadedFile)) fs.unlinkSync(uploadedFile);
+    } else {
+      payStatementPath = uploadedRelativePath;
     }
-    payStatementPath = path.join('invoices', 'paystatements', req.file.filename);
   }
 
   // Keep the first paid date on the invoice record; every payment date is preserved in invoice.payments.
@@ -387,6 +448,38 @@ router.put('/:id/payment', authMiddleware, uploadPayStatement.single('payStateme
         payments: { orderBy: { createdAt: 'asc' } },
       },
     });
+  });
+
+  res.json(updated);
+});
+
+router.put('/:id/paystatement', authMiddleware, uploadPayStatement.single('payStatement'), async (req, res) => {
+  const invoiceId = Number(req.params.id);
+  const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!req.file) return res.status(400).json({ error: 'Pay statement file is required' });
+
+  const uploadedRelativePath = path.join('invoices', 'paystatements', req.file.filename);
+  let payStatementPath = uploadedRelativePath;
+
+  if (invoice.payStatementPath) {
+    payStatementPath = await mergePayStatements(invoice.id, invoice.payStatementPath, uploadedRelativePath);
+
+    const existingFile = path.join('/app/uploads', invoice.payStatementPath);
+    if (fs.existsSync(existingFile)) fs.unlinkSync(existingFile);
+
+    const uploadedFile = path.join('/app/uploads', uploadedRelativePath);
+    if (fs.existsSync(uploadedFile)) fs.unlinkSync(uploadedFile);
+  }
+
+  const updated = await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { payStatementPath },
+    include: {
+      client: { select: { id: true, name: true, payRateType: true } },
+      items: { select: { expenseId: true, timesheetId: true } },
+      payments: { orderBy: { createdAt: 'asc' } },
+    },
   });
 
   res.json(updated);

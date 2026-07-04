@@ -172,6 +172,29 @@ After login, navigate to **Settings** to update business profile values, backup 
 
 ## Features Overview
 
+### Recent Enhancements
+- **Tax calculation consistency**
+  - Dashboard tax split cards now show values only (no CPP/EI/HST percentages)
+  - Reports tax split base now matches Dashboard base logic for paid invoices
+  - Tax and Reports use invoice-generated HST values for paid invoice calculations
+- **Timesheet invoice visibility improvements**
+  - Vertical invoice labels (`INV #`) are shown in the Timesheets table
+  - Invoice-group row highlighting with clearer boundaries to show which days belong to each invoice
+  - Color reservation for status readability:
+    - Orange is reserved for pending invoices
+    - Purple is reserved for partial-paid invoices
+    - Paid invoices use non-orange/non-purple accent colors
+  - Top legend was simplified to keep pending and partial references only
+- **Invoice records enhancements**
+  - Timesheet invoices now store and display **worked days**
+  - New **Days** column in Invoice Records (expense invoices show `—`)
+  - Historical fallback derives day count from linked timesheet items when legacy `workedDays` is not present
+- **Pay statement workflow improvements**
+  - New pay statements no longer overwrite previous ones
+  - Existing and newly uploaded pay statements are merged into a single PDF file
+  - Additional pay statement upload is available directly from expanded invoice details (beside Pay Statement)
+  - Mandatory pay statement requirement for marking paid/partial remains enforced
+
 ### Client Management
 - CRUD clients with locations, pay rates, contract details, and recruiter assignment
 - Upload and preview contract PDFs

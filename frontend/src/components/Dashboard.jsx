@@ -106,9 +106,6 @@ export default function Dashboard() {
     const net     = paidInvoices.reduce((s, x) => s + Number(x.taxNetIncome || 0), 0);
     return {
       cpp, ei, hst, net, base,
-      cppPct: base > 0 ? (cpp / base) * 100 : 0,
-      eiPct:  base > 0 ? (ei  / base) * 100 : 0,
-      hstPct: base > 0 ? (hst / base) * 100 : 0,
     };
   }, [invoiceRows]);
 
@@ -151,9 +148,9 @@ export default function Dashboard() {
           <p className="text-xs text-slate-400">Base: ${taxSummary.base.toFixed(2)}</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard title="CPP Portion" value={`$${taxSummary.cpp.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-sky-500 to-cyan-600" subtext={`${taxSummary.cppPct.toFixed(1)}% of paid invoices`} />
-          <StatCard title="EI Portion" value={`$${taxSummary.ei.toFixed(2)}`} icon={Clock} color="bg-gradient-to-br from-indigo-500 to-blue-600" subtext={`${taxSummary.eiPct.toFixed(1)}% of paid invoices`} />
-          <StatCard title="HST Portion" value={`$${taxSummary.hst.toFixed(2)}`} icon={Receipt} color="bg-gradient-to-br from-violet-500 to-purple-600" subtext={`${taxSummary.hstPct.toFixed(1)}% of paid invoices`} />
+          <StatCard title="CPP Portion" value={`$${taxSummary.cpp.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-sky-500 to-cyan-600" />
+          <StatCard title="EI Portion" value={`$${taxSummary.ei.toFixed(2)}`} icon={Clock} color="bg-gradient-to-br from-indigo-500 to-blue-600" />
+          <StatCard title="HST Portion" value={`$${taxSummary.hst.toFixed(2)}`} icon={Receipt} color="bg-gradient-to-br from-violet-500 to-purple-600" />
           <StatCard title="Net Income" value={`$${taxSummary.net.toFixed(2)}`} icon={DollarSign} color="bg-gradient-to-br from-emerald-500 to-teal-600" subtext="After CPP + EI + HST" />
         </div>
       </div>

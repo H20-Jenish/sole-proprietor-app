@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import api from '../api.js';
 import { 
   Plus, Trash2, Download, CheckCircle, Eye, FileText, Filter,
-  Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp, Undo2, HandCoins
+  Calendar, Building2, Receipt, ArrowRight, X, ChevronDown, ChevronUp, Undo2, HandCoins, Upload
 } from 'lucide-react';
 
 function toYmd(value) {
@@ -75,6 +75,8 @@ export default function Invoices() {
   const [paymentInvoice, setPaymentInvoice] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amountPaid: '', paidDate: todayYmd(), notes: '', payStatement: null, keepExistingPayStatement: false, cpp: '', ei: '', hst: '' });
   const [downloadPickerInvoice, setDownloadPickerInvoice] = useState(null);
+  const [payStatementUploads, setPayStatementUploads] = useState({});
+  const [uploadingPayStatementId, setUploadingPayStatementId] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -290,6 +292,33 @@ export default function Invoices() {
     });
   }
 
+  async function uploadPayStatementFromDropdown(invoiceId) {
+    const file = payStatementUploads[invoiceId] || null;
+    if (!file) {
+      alert('Please choose a pay statement file first.');
+      return;
+    }
+
+    setUploadingPayStatementId(invoiceId);
+    try {
+      const fd = new FormData();
+      fd.append('payStatement', file);
+      await api.put(`/invoices/${invoiceId}/paystatement`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setPayStatementUploads((prev) => {
+        const next = { ...prev };
+        delete next[invoiceId];
+        return next;
+      });
+      await load();
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to upload pay statement');
+    } finally {
+      setUploadingPayStatementId(null);
+    }
+  }
+
   function downloadPayStatement(id) {
     window.open(`/api/invoices/${id}/paystatement?download=1`, '_blank', 'noopener,noreferrer');
   }
@@ -459,6 +488,7 @@ export default function Invoices() {
                 <th className="text-center whitespace-nowrap w-[95px]">Paid On</th>
                 <th className="text-center whitespace-nowrap w-[110px]">Paid Amount</th>
                 <th className="text-center whitespace-nowrap w-[70px]">Hours</th>
+                <th className="text-center whitespace-nowrap w-[70px]">Days</th>
                 <th className="text-center whitespace-nowrap w-[90px]">Total</th>
                 <th className="text-center whitespace-nowrap w-[105px]">Status</th>
                 <th className="text-center whitespace-nowrap w-[150px]">Actions</th>
@@ -466,9 +496,9 @@ export default function Invoices() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="py-8 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan={11} className="py-8 text-center text-slate-400">Loading...</td></tr>
               ) : invoices.length === 0 ? (
-                <tr><td colSpan={10}>
+                <tr><td colSpan={11}>
                   <div className="empty-state py-12">
                     <FileText className="w-10 h-10 mb-2 text-slate-300" />
                     <p className="text-sm font-medium text-slate-600">No invoices yet</p>
@@ -478,6 +508,12 @@ export default function Invoices() {
               ) : (
                 invoices.map(inv => (
                   <Fragment key={inv.id}>
+                  {(() => {
+                    const fallbackWorkedDays = Array.isArray(inv.items)
+                      ? inv.items.filter((item) => !!item.timesheetId).length
+                      : 0;
+                    const workedDays = Number(inv.workedDays || fallbackWorkedDays || 0);
+                    return (
                   <tr
                     onClick={(e) => onInvoiceRowClick(e, inv)}
                     className={canExpandPaymentDetails(inv) ? 'cursor-pointer hover:bg-slate-50' : ''}
@@ -515,6 +551,7 @@ export default function Invoices() {
                     <td className="text-slate-600 whitespace-nowrap text-center">{formatDateOnly(inv.paidDate)}</td>
                     <td className="text-center font-medium text-slate-700">{inv.amountPaid != null ? `$${Number(inv.amountPaid).toFixed(2)}` : '—'}</td>
                     <td className="text-center font-medium">{Number(inv.totalHours).toFixed(2)}</td>
+                    <td className="text-center font-medium">{isExpenseInvoiceRow(inv) ? '—' : workedDays}</td>
                     <td className="text-center font-bold text-slate-900">${Number(inv.total).toFixed(2)}</td>
                     <td className="whitespace-nowrap text-center">
                       <span className={`inline-flex ${inv.status === 'PAID' ? 'status-paid' : (inv.status === 'PARTIAL' ? 'status-partial' : 'status-pending')}`}>
@@ -574,9 +611,11 @@ export default function Invoices() {
                       </div>
                     </td>
                   </tr>
+                    );
+                  })()}
                   {expandedInvoiceId === inv.id && canExpandPaymentDetails(inv) && (
                     <tr>
-                      <td colSpan={10} className="bg-slate-50/80 px-4 py-3">
+                      <td colSpan={11} className="bg-slate-50/80 px-4 py-3">
                         <div className="rounded-lg border border-slate-200 bg-white p-3">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
@@ -586,16 +625,47 @@ export default function Invoices() {
                             <div>
                               <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Pay Statement</p>
                               {inv.payStatementPath ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openPayStatement(inv.id);
-                                  }}
-                                  className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:text-violet-800"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                  Pay Statement
-                                </button>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openPayStatement(inv.id);
+                                    }}
+                                    className="inline-flex items-center gap-2 text-sm font-semibold text-violet-700 hover:text-violet-800"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                    Pay Statement
+                                  </button>
+                                  <label className="premium-btn-secondary !py-1.5 !px-2.5 text-xs cursor-pointer">
+                                    <input
+                                      type="file"
+                                      accept=".pdf,.png,.jpg,.jpeg"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0] || null;
+                                        setPayStatementUploads((prev) => ({ ...prev, [inv.id]: file }));
+                                      }}
+                                    />
+                                    Choose File
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={!payStatementUploads[inv.id] || uploadingPayStatementId === inv.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      uploadPayStatementFromDropdown(inv.id);
+                                    }}
+                                    className="premium-btn-primary !py-1.5 !px-2.5 text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    {uploadingPayStatementId === inv.id ? 'Uploading...' : 'Upload'}
+                                  </button>
+                                  {payStatementUploads[inv.id] && (
+                                    <span className="text-[11px] text-slate-500 truncate max-w-[220px]" title={payStatementUploads[inv.id].name}>
+                                      {payStatementUploads[inv.id].name}
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <p className="mt-1 text-sm text-slate-500">No pay statement uploaded.</p>
                               )}
@@ -809,7 +879,7 @@ export default function Invoices() {
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Pay Statement (required)</label>
                 <input
                   type="file"
-                  accept=".pdf,image/*"
+                  accept=".pdf,.png,.jpg,.jpeg"
                   className="premium-input"
                   onChange={e => setPaymentForm((prev) => ({ ...prev, payStatement: e.target.files?.[0] || null }))}
                 />

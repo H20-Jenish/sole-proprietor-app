@@ -105,6 +105,28 @@
   .timesheet-table th {
     @apply text-[13px] tracking-wide;
   }
+
+  .invoice-ribbon {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    @apply inline-flex items-center justify-center rounded-md border px-1 py-2 text-[11px] font-bold tracking-wide leading-none shadow-sm;
+  }
+
+  .invoice-ribbon-paid {
+    @apply bg-emerald-100 text-emerald-800 border-emerald-300;
+  }
+
+  .invoice-ribbon-partial {
+    @apply bg-violet-100 text-violet-800 border-violet-300;
+  }
+
+  .invoice-ribbon-pending {
+    @apply bg-amber-100 text-amber-800 border-amber-300;
+  }
+
+  .invoice-ribbon-neutral {
+    @apply bg-slate-100 text-slate-700 border-slate-300;
+  }
   
   .status-badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
